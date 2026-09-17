@@ -41,16 +41,16 @@ def correction_rows(text):
 
 
 def feedback_section(path, budget):
-    head = f"### Routing feedback file\n\nPath: `{path}`\n\n"
+    head = f"Feedback file: `{path}`"
     if not path.is_file():
-        return head + "It does not exist yet — no corrections recorded."
+        return head + " (not created yet)"
     rows = correction_rows(path.read_text(encoding="utf-8"))
     if not rows:
-        return head + "No corrections recorded yet."
+        return head + " (no corrections yet)"
 
-    columns = "| Date | Situation | Routed to | Should be | Why |\n|---|---|---|---|---|\n"
-    full = head + "Corrections — consult before routing:\n\n" + columns
-    trimmed = head + "Most recent corrections (read the file for the rest) — consult before routing:\n\n" + columns
+    # rows only: the column order is given in the rules (date, situation, routed to, should be, why)
+    full = head + "\nCorrections:\n"
+    trimmed = head + "\nLatest corrections (read the file for the rest):\n"
     if len(full) + len("\n".join(rows)) <= budget:
         return full + "\n".join(rows)
 
@@ -61,6 +61,8 @@ def feedback_section(path, budget):
             break
         kept.insert(0, row)
         used += len(row) + 1
+    if not kept:
+        return head + " (has corrections — read it before routing)"
     return trimmed + "\n".join(kept)
 
 
@@ -79,7 +81,6 @@ def main():
     budget = MAX_CONTEXT_CHARS - len(rules) - 2
     section = feedback_section(path, budget)
     if len(section) > budget:
-        # rules left no room for corrections; the path alone still lets the model read and append
         section = f"Feedback file: `{path}`"
     context = (rules + "\n\n" + section)[:MAX_CONTEXT_CHARS]
 

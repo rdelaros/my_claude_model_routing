@@ -10,6 +10,8 @@ Automatic model routing for Claude Code — uses the cheapest model capable of e
 | **Building** | `model-router:builder` — sonnet by default | Code edits, file creation, test writing. Runs in parallel subagents. |
 | **Operational** | `model-router:operator` — haiku by default | Git, pull requests, pipelines, deployments, job runs, queries, group checks, Jira/Confluence updates. |
 
+The operator runs in the background (`background: true` in its definition). When you ask for a pull, a pipeline check or a deployment, the main session launches it, tells you in one line what is running, and hands the prompt back — you keep working and get the result when it finishes. Builders stay in the foreground of the plan they belong to, because the main session needs their results to integrate.
+
 The plugin ships four things:
 
 - `agents/` — the `builder` and `operator` subagents, with a default model and effort in their frontmatter.
@@ -53,7 +55,7 @@ The rules were tuned against 816 real prompts from 37 sessions. Three findings s
 
 - **Keyword triggers do not work.** A phrase list matched 10% of prompts. Real requests are short and contextual — "continue", "si me parece bien", a ticket URL, "tag pre and pro". The rules therefore classify the work about to be done, and an approval inherits the tier of whatever was just proposed.
 - **Context is the cost, not output.** 91% of spend was the conversation being re-read or re-cached on each turn; output was under 9%. Every tool call made in a 300k-token session is billed against all 300k tokens. A subagent does the same calls on a cheaper model over a small fresh context and returns a short result.
-- **Small jobs are not worth delegating.** Spawning costs about two main-session turns, so the threshold is 3+ tool calls or verbose output. By that rule roughly 70% of spend was delegable, for an estimated saving of about a third.
+- **Small jobs are not worth delegating.** Spawning costs about two main-session turns, so the threshold is 3+ tool calls, verbose output, or anything you would otherwise sit and wait for. By that rule roughly 70% of spend was delegable, for an estimated saving of about a third.
 
 Operational work was 41% of prompts and 50% of cost; building 20% and 37%; thinking 39% and 13%.
 
