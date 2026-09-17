@@ -126,6 +126,10 @@ When you correct a routing decision ("don't delegate this", "this should be haik
 
 Session-start context is capped at 4,000 characters, so the hook injects the rules plus as many of the most recent corrections as fit, and points to the file for the rest. Keep `rules/routing.md` compact when you customize it — every character added there is one fewer for corrections. Once a correction has proven itself, fold it into the rules and delete the row.
 
+## Optimising another machine
+
+`docs/optimize-a-machine.md` is a playbook for a Claude Code session on another machine: measure how Claude Code is used there, set the two settings, install this plugin (from a copied folder if the machine cannot reach the repository), prune unused skills and plugins, and make expensive commands run in a fresh context. `tools/session_report.py` is the read-only measurement script it uses: `python3 tools/session_report.py ~/.claude [other config dirs]`.
+
 ## Requirements
 
 - Claude Code with at least one model available for subagents. The defaults are sonnet and haiku; `/model-router:setup` checks them and lets you choose others.

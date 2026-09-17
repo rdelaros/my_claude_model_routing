@@ -111,14 +111,19 @@ def check_one(model):
             detail = f"HTTP {result['api_error_status']}: {detail}"
         return {"model": model, "status": "FAIL", "detail": detail[:200]}
 
-    answered = sorted((result.get("modelUsage") or {}).items(), key=lambda kv: -(kv[1].get("outputTokens") or 0))
+    # Claude Code also makes small helper calls on its fast model; the model that answered is
+    # the one that carried the conversation context, not the one with the most output tokens.
+    def context_tokens(usage):
+        return sum(usage.get(k) or 0 for k in ("inputTokens", "cacheReadInputTokens", "cacheCreationInputTokens"))
+
+    answered = sorted((result.get("modelUsage") or {}).items(), key=lambda kv: -context_tokens(kv[1]))
     answered_by = answered[0][0] if answered else "?"
     out = {"model": model, "status": "OK", "answered_by": answered_by, "seconds": round(seconds, 1),
            "cost_usd": result.get("total_cost_usd")}
     wanted = family(effective_env(ALIAS_ENV[model]) or model) if model in ALIASES else family(model)
     if wanted and family(answered_by) and family(answered_by) != wanted:
         out["status"] = "FALLBACK"
-        out["detail"] = f"asked for {wanted}, a {family(answered_by)} model answered"
+        out["detail"] = f"asked for {wanted}, but {answered_by} answered"
     return out
 
 
