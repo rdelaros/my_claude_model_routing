@@ -16,7 +16,7 @@ The plugin ships four things:
 
 - `agents/` — the `builder` and `operator` subagents, with a default model and effort in their frontmatter.
 - `rules/routing.md` — the routing rules: tiers, how to classify, when to delegate, the confirmation gate.
-- `hooks/` — a `SessionStart` hook that injects `rules/routing.md` plus your recorded routing corrections into every session, a fallback that injects them on the next prompt when the session was already open, and a `UserPromptSubmit` hook that tells you when `/compact` would pay off. Nothing needs to be pasted into `CLAUDE.md`.
+- `hooks/` — a `SessionStart` hook that injects `rules/routing.md` plus your recorded routing corrections into every session, a fallback that injects them on the next prompt when the session was already open, a `UserPromptSubmit` hook that tells you when `/compact` would pay off, and a `SubagentStop` hook that sends an over-long subagent report back for a summary. Nothing needs to be pasted into `CLAUDE.md`.
 - `skills/setup/` — `/model-router:setup`, which checks which models answer on your provider and sets the model for each tier.
 
 ## Installation
@@ -101,6 +101,8 @@ Routing reduces what each turn costs; context size decides how big each turn is.
 - the context first passes 150k tokens, and again at each further 50k.
 
 Hooks cannot run `/compact` themselves. Tune or disable the warning with `MODEL_ROUTER_COMPACT_TOKENS`, `MODEL_ROUTER_COMPACT_STEP`, `MODEL_ROUTER_CACHE_TTL` (seconds; detected from the transcript by default) and `MODEL_ROUTER_CONTEXT_WATCH=0`.
+
+**Subagent reports are kept short.** What a subagent sends back is copied into the main conversation and billed again on every later turn. The agents' own instructions ask for short reports, but other agents (`Explore`, your own, a session fork) do not follow them: in the measured sessions background reports had a median of 3,400 characters and a maximum of 18,600. A `SubagentStop` hook (`hooks/report-budget.py`) enforces a budget: when a report is over 4,000 characters (about 1,000 tokens) it saves the full text to `<config dir>/model-router/reports/<agent id>.md` and sends the subagent back once to answer with a summary that ends with `Full report: <path>`. Nothing is lost — the main session reads the file only when it needs the detail — and the rewrite costs one short turn on the subagent's own small context. It applies to every subagent, including a forked command whose report is what you read; set `MODEL_ROUTER_REPORT_CHARS` to change the budget (`0` disables) and `MODEL_ROUTER_REPORT_EXEMPT` to a comma-separated list of agent types that may report at any length. Saved reports are deleted after 14 days.
 
 **Two settings do the rest automatically.** A plugin cannot set these; add them to `settings.json` in each config directory:
 

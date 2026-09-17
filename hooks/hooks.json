@@ -1,5 +1,5 @@
 {
-  "description": "model-router hooks: inject the routing rules at session start (or on the next prompt if the session was already open), and tell the user when /compact would pay off.",
+  "description": "model-router hooks: inject the routing rules at session start (or on the next prompt if the session was already open), tell the user when /compact would pay off, and send an over-long subagent report back for a summary.",
   "hooks": {
     "SessionStart": [
       {
@@ -23,6 +23,17 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/context-watch.py\" || python \"${CLAUDE_PLUGIN_ROOT}/hooks/context-watch.py\" || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/report-budget.py\" || python \"${CLAUDE_PLUGIN_ROOT}/hooks/report-budget.py\" || true",
             "timeout": 5
           }
         ]
