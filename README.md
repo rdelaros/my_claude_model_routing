@@ -16,7 +16,7 @@ The plugin ships four things:
 
 - `agents/` — the `builder` and `operator` subagents, with a default model and effort in their frontmatter.
 - `rules/routing.md` — the routing rules: tiers, how to classify, when to delegate, the confirmation gate.
-- `hooks/` — a `SessionStart` hook that injects `rules/routing.md` plus your recorded routing corrections into every session, and a `UserPromptSubmit` hook that tells you when `/compact` would pay off. Nothing needs to be pasted into `CLAUDE.md`.
+- `hooks/` — a `SessionStart` hook that injects `rules/routing.md` plus your recorded routing corrections into every session, a fallback that injects them on the next prompt when the session was already open, and a `UserPromptSubmit` hook that tells you when `/compact` would pay off. Nothing needs to be pasted into `CLAUDE.md`.
 - `skills/setup/` — `/model-router:setup`, which checks which models answer on your provider and sets the model for each tier.
 
 ## Installation
@@ -28,7 +28,24 @@ The plugin ships four things:
 
 From a local clone, use the path instead: `/plugin marketplace add /path/to/my_claude_model_routing`.
 
-Start a new session afterwards so the hook runs, then run `/model-router:setup` once to confirm the tier models work on your provider. The hook needs `python3` (or `python`) on `PATH`; without it the agents still load but the routing rules are not injected.
+Then run `/model-router:setup` once to confirm the tier models work on your provider. A session that was already open when you installed or reloaded the plugin gets the routing rules on its next prompt; new sessions get them at start. The hook needs `python3` (or `python`) on `PATH`; without it the agents still load but the routing rules are not injected.
+
+## Slash commands, skills and other agents
+
+A slash command or skill is routed like any other request. If its steps are commands or MCP calls — a "check my pending tasks" command that queries Jira and lists pull requests, say — the main session hands the whole command text to the operator and shows you the finished report, instead of running the steps itself. When a skill dispatches agents of its own, the main session gives them a model by the same tiers.
+
+That routing is a judgement the main session makes, and a command that spells out its steps tempts it to just follow them. To make a command or skill of your own always run in the operator, say so in its frontmatter:
+
+```
+---
+context: fork
+agent: model-router:operator
+---
+```
+
+`context: fork` runs the command in a subagent instead of the main conversation, `agent` picks which one, and forks run in the background by default, so the prompt comes straight back to you. Use `agent: model-router:builder` for commands that edit files.
+
+Your own agents (`~/.claude/agents/*.md`) are not touched by the plugin: without a `model:` line in their frontmatter they run on the main model. Add `model: haiku` or `model: sonnet` to the ones that do operational or implementation work.
 
 ## Choosing the models
 

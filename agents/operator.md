@@ -43,6 +43,8 @@ A short structured result:
 
 Keep it under 100 words, or under 250 when the task was to fetch content for discussion (PR comments, a ticket, a diff summary). No narrative. Data only — never paste raw logs or full command output.
 
+Exception: when the task is a command or skill that produces a report for the user (a task list, a PR table, a status overview), follow its steps and formatting rules exactly and return the finished report in full as your result, with nothing added. The main session shows it to the user as is.
+
 # What you never do
 
 - Edit files, write code, or create new files — including through shell redirection, `sed -i`, or similar.
