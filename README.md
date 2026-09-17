@@ -8,7 +8,7 @@ Automatic model routing for Claude Code — uses the cheapest model capable of e
 |---|---|---|
 | **Thinking** | Main session (your selected model) | Architecture, design, trade-offs, discussions. Never delegated. |
 | **Building** | `model-router:builder` — sonnet by default | Code edits, file creation, test writing. Runs in parallel subagents. |
-| **Operational** | `model-router:operator` — haiku by default | Git, pull requests, pipelines, deployments, job runs, queries, group checks, Jira/Confluence updates. |
+| **Operational** | `model-router:operator` — haiku by default | Git, pull and merge requests (Azure DevOps, GitLab, GitHub), pipelines, Azure CLI lookups, Terraform plans, Kubernetes and Helm reads, deployments, job runs, queries, Jira/Confluence updates. |
 
 The operator runs in the background (`background: true` in its definition). When you ask for a pull, a pipeline check or a deployment, the main session launches it, tells you in one line what is running, and hands the prompt back — you keep working and get the result when it finishes. Builders stay in the foreground of the plan they belong to, because the main session needs their results to integrate.
 
@@ -64,7 +64,18 @@ The helper also works on its own: `python3 skills/setup/scripts/models.py show |
 
 ## Confirmation gate
 
-Delegation is not authorization. Production targets, SQL that writes or destroys, and cancelling or deleting remote resources are confirmed with you in the main session first, unless your message already named the action and target explicitly. The operator refuses these actions unless its task carries the `CONFIRMED BY USER` line the main session adds after you agree.
+Delegation is not authorization. These are confirmed with you in the main session first, unless your message already named the action and target explicitly:
+
+- production targets, including tags and PR/MR merges that promote to pre-production or production;
+- anything that changes infrastructure or cloud resources — `terraform apply`, `destroy`, `import` and state surgery; `az` create, update, delete and role assignments; `kubectl` and `helm` changes;
+- SQL that writes, destroys or grants;
+- cancelling or deleting jobs, pipelines, branches, tickets or remote files.
+
+The operator refuses these actions unless its task carries the `CONFIRMED BY USER` line the main session adds after you agree.
+
+Reads and plans are free: the operator runs `terraform plan`, `az ... show|list`, `kubectl get|describe|logs` and `glab ci status` without asking. It reports a plan as counts plus one line per resource, flagging every destroy or replace, and the main session judges whether it is safe. When an apply is confirmed, the operator applies the saved plan file the confirmation refers to, never a fresh `-auto-approve`. Before touching cloud or cluster state it reports which subscription, Terraform workspace or kube context it is in, and stops if that is not the target it was given.
+
+Terraform, Bicep, Helm and pipeline YAML edits are Building work: the builder formats and validates what it touched and never runs a plan or apply.
 
 ## Why it routes on the work, not the wording
 
@@ -78,7 +89,7 @@ Operational work was 41% of prompts and 50% of cost; building 20% and 37%; think
 
 ## Customizing
 
-Edit `rules/routing.md` to match your workflow — the "Typical Operational / Building / Thinking" examples are hints for the model, not match patterns. The operator's tool-specific rules (Azure DevOps, Databricks, Jira) apply only when a task involves those tools. The operator inherits every tool the session has, including MCP servers, except the file-editing tools.
+Edit `rules/routing.md` to match your workflow — the "Typical Operational / Building / Thinking" examples are hints for the model, not match patterns. The operator's tool-specific rules (Azure CLI, Azure DevOps, Terraform, GitLab, GitHub, Kubernetes/Helm, Databricks, Jira) apply only when a task involves those tools. The operator inherits every tool the session has, including MCP servers, except the file-editing tools.
 
 ## Keeping the context small
 
