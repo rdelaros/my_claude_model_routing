@@ -5,14 +5,29 @@ usage: python3 before_after.py [CONFIG_DIR ...]      (default: ~/.claude)
 
 A session counts as "after" when a hook injected the routing rules into it. Costs are
 relative units (cache read 0.1, cache write 1.25, input 1, output 5) on the main session
-only; subagent transcripts are not included. Set SKIP_SESSION=<id> to leave one out.
+only; subagent transcripts are not included. Time per prompt is wall-clock from the typed
+prompt to the last assistant message before the next one, so it includes waiting for
+background agents and for pipelines. Set SKIP_SESSION=<id> to leave one out.
 """
 import collections, glob, json, os, re, sys
+from datetime import datetime
 
 dirs = [os.path.expanduser(d) for d in (sys.argv[1:] or ["~/.claude"])]
 cost = lambda u: .1 * (u.get("cache_read_input_tokens") or 0) + 1.25 * (u.get("cache_creation_input_tokens") or 0) \
     + (u.get("input_tokens") or 0) + 5 * (u.get("output_tokens") or 0)
 SKIP = os.environ.get("SKIP_SESSION", "")
+
+
+def when(r):
+    try:
+        return datetime.fromisoformat(r["timestamp"].replace("Z", "+00:00")).timestamp()
+    except (KeyError, ValueError, AttributeError):
+        return None
+
+
+def quantile(values, q):
+    values = sorted(values)
+    return values[min(len(values) - 1, int(q * len(values)))] if values else 0
 
 
 def typed_prompt(r):
@@ -27,6 +42,7 @@ def typed_prompt(r):
 
 for cfg in dirs:
     groups = {"before": collections.defaultdict(float), "after": collections.defaultdict(float)}
+    seconds = {"before": collections.defaultdict(list), "after": collections.defaultdict(list)}
     for path in glob.glob(os.path.join(cfg, "projects", "*", "*.jsonl")):
         if os.path.basename(path)[:-6] == SKIP:
             continue
@@ -39,7 +55,7 @@ for cfg in dirs:
                 recs.append(json.loads(line))
             except ValueError:
                 continue
-        G = groups["after" if routed else "before"]
+        g = "after" if routed else "before"; G = groups[g]; T = seconds[g]
         seen = set(); cur = None; opened = []; prompts = 0
         for r in recs:
             if r.get("isSidechain"):
@@ -47,7 +63,7 @@ for cfg in dirs:
             if r.get("type") == "user":
                 if typed_prompt(r) is not None:
                     prompts += 1
-                    cur = {"edits": 0, "ops": 0, "agent": 0, "turns": 0, "cost": 0.0}
+                    cur = {"edits": 0, "ops": 0, "agent": 0, "turns": 0, "cost": 0.0, "start": when(r), "end": None}
                     opened.append(cur)
                 c = r.get("message", {}).get("content")
                 for m in re.finditer(r"<result>(.*?)</result>", c if isinstance(c, str) else "", flags=re.S):
@@ -77,12 +93,14 @@ for cfg in dirs:
                 if ctx >= 2e5:
                     G["calls_200k"] += 1; G["cost_200k"] += c
                 if cur is not None:
-                    cur["turns"] += 1; cur["cost"] += c
+                    cur["turns"] += 1; cur["cost"] += c; cur["end"] = when(r) or cur["end"]
         for cur in opened:
             if not cur["turns"]:
                 continue
             k = "building" if cur["edits"] else "ops in main" if cur["ops"] else "delegated" if cur["agent"] else "thinking"
             G["p_" + k] += 1; G["c_" + k] += cur["cost"]
+            if cur["start"] and cur["end"] and cur["end"] >= cur["start"]:
+                T[k].append(cur["end"] - cur["start"]); T["all"].append(cur["end"] - cur["start"])
             if k == "ops in main":
                 G["ops_calls"] += cur["ops"]
         G["prompts"] += prompts; G["sessions"] += 1
@@ -97,8 +115,10 @@ for cfg in dirs:
         print(f"  mean context per call:         {G['ctx_sum'] / G['calls']:10,.0f} tokens")
         print(f"  calls at 200k+ context:        {G['calls_200k'] / G['calls']:10.0%} of calls, {G['cost_200k'] / C:.0%} of cost")
         print(f"  cache writes: 5-minute TTL {G['ttl_5m']:,.0f} tok | 1-hour TTL {G['ttl_1h']:,.0f} tok")
+        T = seconds[g]
+        print(f"  time per prompt: median {quantile(T['all'], .5):,.0f}s, p90 {quantile(T['all'], .9):,.0f}s")
         for k in ("thinking", "building", "ops in main", "delegated"):
-            print(f"  {k:12} prompts {int(G['p_' + k]):4} ({G['p_' + k] / P:4.0%})  cost {G['c_' + k] / C:4.0%}")
+            print(f"  {k:12} prompts {int(G['p_' + k]):4} ({G['p_' + k] / P:4.0%})  cost {G['c_' + k] / C:4.0%}  median {quantile(T[k], .5):5,.0f}s")
         print(f"  Bash/MCP calls in the main session per operational prompt: {G['ops_calls'] / (G['p_ops in main'] or 1):.1f}")
         print(f"  subagent launches: {int(G['subs'])}, with a model set: {int(G['subs_with_model'])}")
         print(f"  agent reports back: {int(G['reports'])}, mean {G['report_chars'] / (G['reports'] or 1):,.0f} chars, over 4,000: {int(G['reports_long'])}")

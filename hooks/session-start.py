@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""SessionStart hook: inject the model-routing rules and the user's routing corrections.
+"""SessionStart hook: inject the model-routing rules, or the user's routing corrections.
+
+Run once per part (`rules`, `corrections`): a hook's additionalContext is capped at 4,000
+characters, so each part is its own hook with its own budget.
 
 Local-only and fail-open: no network, and any error exits 0 with no output so a
 broken hook never blocks a session.
@@ -15,18 +18,21 @@ from router_context import build_context, session_marker
 
 
 def main():
+    part = sys.argv[1] if len(sys.argv) > 1 else "rules"
     try:
         payload = json.load(sys.stdin)
     except ValueError:
         payload = {}
 
-    json.dump(
-        {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": build_context()}},
-        sys.stdout,
-    )
+    context = build_context(part)
+    if context:
+        json.dump(
+            {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": context}},
+            sys.stdout,
+        )
 
     # lets ensure-rules.py skip this session without scanning its transcript
-    marker = session_marker(payload.get("session_id"))
+    marker = session_marker(payload.get("session_id"), part)
     if marker:
         try:
             marker.parent.mkdir(parents=True, exist_ok=True)

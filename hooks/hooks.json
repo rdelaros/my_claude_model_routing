@@ -1,5 +1,5 @@
 {
-  "description": "model-router hooks: inject the routing rules at session start (or on the next prompt if the session was already open), tell the user when /compact would pay off, and send an over-long subagent report back for a summary.",
+  "description": "model-router hooks: inject the routing rules at session start (or on the next prompt if the session was already open), give every subagent launch its tier's model, tell the user when /compact would pay off, and send an over-long subagent report back for a summary.",
   "hooks": {
     "SessionStart": [
       {
@@ -7,7 +7,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.py\" || python \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.py\" || true"
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.py\" rules || python \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.py\" rules || true"
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.py\" corrections || python \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.py\" corrections || true"
           }
         ]
       }
@@ -17,12 +21,29 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/ensure-rules.py\" || python \"${CLAUDE_PLUGIN_ROOT}/hooks/ensure-rules.py\" || true",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/ensure-rules.py\" rules || python \"${CLAUDE_PLUGIN_ROOT}/hooks/ensure-rules.py\" rules || true",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/ensure-rules.py\" corrections || python \"${CLAUDE_PLUGIN_ROOT}/hooks/ensure-rules.py\" corrections || true",
             "timeout": 5
           },
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/context-watch.py\" || python \"${CLAUDE_PLUGIN_ROOT}/hooks/context-watch.py\" || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/agent-model.py\" || python \"${CLAUDE_PLUGIN_ROOT}/hooks/agent-model.py\" || true",
             "timeout": 5
           }
         ]

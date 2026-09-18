@@ -3,7 +3,7 @@
 
   models.py show                       current tier models, alias mappings, anything overriding them
   models.py check [model ...]          call each model once through `claude -p` and report who answered
-  models.py set builder=<alias> operator=<alias>
+  models.py set builder=<alias> operator=<alias> senior_operator=<alias>
   models.py map <alias>=<model-id>     point an alias at a model id / deployment name (writes settings.json env)
   models.py unmap <alias>
 
@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 ALIASES = ("haiku", "sonnet", "opus", "fable")  # what the Agent tool's `model` parameter accepts
-TIERS = {"builder": "sonnet", "operator": "haiku"}
+TIERS = {"builder": "sonnet", "operator": "haiku", "senior_operator": "sonnet"}
 ALIAS_ENV = {a: f"ANTHROPIC_DEFAULT_{a.upper()}_MODEL" for a in ALIASES}
 CHECK_TIMEOUT = 120
 
@@ -69,7 +69,7 @@ def cmd_show(_args):
     print(f"main model : {load_json(config_dir() / 'settings.json').get('model') or '(default)'}")
     print("tiers      :")
     for tier, model in tier_models().items():
-        print(f"  {tier:9} -> {model}{'' if load_json(router_config_path()).get(tier) else '  (default)'}")
+        print(f"  {tier:15} -> {model}{'' if load_json(router_config_path()).get(tier) else '  (default)'}")
     print("alias maps :")
     mapped = {alias: effective_env(var) for alias, var in ALIAS_ENV.items() if effective_env(var)}
     for alias, value in mapped.items():
@@ -145,7 +145,7 @@ def cmd_set(args):
     for arg in args:
         tier, _, model = arg.partition("=")
         if tier not in TIERS or model not in ALIASES:
-            print(f"invalid: {arg!r} — use builder=<alias> / operator=<alias>, alias one of {', '.join(ALIASES)}", file=sys.stderr)
+            print(f"invalid: {arg!r} — use <tier>=<alias>, tier one of {', '.join(TIERS)}, alias one of {', '.join(ALIASES)}", file=sys.stderr)
             return 2
         chosen[tier] = model
     if not chosen:

@@ -4,10 +4,11 @@ import os
 from pathlib import Path
 
 RULES_MARKER = "## Model routing"
+CORRECTIONS_MARKER = "Routing corrections"
 FEEDBACK_FILENAME = "routing-feedback.md"
-TIER_DEFAULTS = {"builder": "sonnet", "operator": "haiku"}
+TIER_DEFAULTS = {"builder": "sonnet", "operator": "haiku", "senior_operator": "sonnet"}
 ALIASES = ("haiku", "sonnet", "opus", "fable")
-# additionalContext is capped at 4,000 characters; stay under it.
+# additionalContext is capped at 4,000 characters per hook; each of ours stays under it.
 MAX_CONTEXT_CHARS = 3900
 
 
@@ -31,49 +32,55 @@ def correction_rows(text):
     return [r for r in rows[1:] if not set(r) <= set("|-: ")]
 
 
-def feedback_section(path, budget):
-    head = f"Feedback file: `{path}`"
-    if not path.is_file():
-        return head + " (not created yet)"
-    rows = correction_rows(path.read_text(encoding="utf-8"))
-    if not rows:
-        return head + " (no corrections yet)"
-
-    # rows only: the column order is given in the rules (date, situation, routed to, should be, why)
-    full = head + "\nCorrections:\n"
-    trimmed = head + "\nLatest corrections (read the file for the rest):\n"
-    if len(full) + len("\n".join(rows)) <= budget:
-        return full + "\n".join(rows)
-
-    kept = []
-    used = len(trimmed)
-    for row in reversed(rows):
-        if used + len(row) + 1 > budget:
-            break
-        kept.insert(0, row)
-        used += len(row) + 1
-    if not kept:
-        return head + " (has corrections — read it before routing)"
-    return trimmed + "\n".join(kept)
+def feedback_path():
+    return router_dir() / FEEDBACK_FILENAME
 
 
-def build_context():
+def build_rules():
+    """The routing rules with the tier models filled in, ending with where the corrections live."""
     plugin_root = Path(os.environ.get("CLAUDE_PLUGIN_ROOT") or Path(__file__).resolve().parent.parent)
     rules = (plugin_root / "rules" / "routing.md").read_text(encoding="utf-8").rstrip()
     for tier, model in tier_models().items():
         rules = rules.replace("{" + tier + "_model}", model)
-
-    path = router_dir() / FEEDBACK_FILENAME
-    budget = MAX_CONTEXT_CHARS - len(rules) - 2
-    section = feedback_section(path, budget)
-    if len(section) > budget:
-        section = f"Feedback file: `{path}`"
-    return (rules + "\n\n" + section)[:MAX_CONTEXT_CHARS]
+    path = feedback_path()
+    tail = f"Feedback file: `{path}`"
+    if not path.is_file() and len(rules) + len(tail) + 20 <= MAX_CONTEXT_CHARS:
+        tail += " (not created yet)"
+    return (rules + "\n\n" + tail)[:MAX_CONTEXT_CHARS]
 
 
-def session_marker(session_id):
-    """Marker file recording that this session already has the routing context."""
+def build_corrections():
+    """The user's correction rows, newest kept when they do not all fit; empty when there are none.
+
+    Injected by its own hook so the rows get a budget of their own instead of whatever the rules leave.
+    """
+    path = feedback_path()
+    if not path.is_file():
+        return ""
+    rows = correction_rows(path.read_text(encoding="utf-8"))
+    if not rows:
+        return ""
+    # rows only: the column order is given in the rules (date, situation, routed to, should be, why)
+    head = CORRECTIONS_MARKER + " (they override the routing rules):\n"
+    if len(head) + len("\n".join(rows)) <= MAX_CONTEXT_CHARS:
+        return head + "\n".join(rows)
+    head = CORRECTIONS_MARKER + f" (latest; they override the routing rules — `{path}` has the rest):\n"
+    kept, used = [], len(head)
+    for row in reversed(rows):
+        if used + len(row) + 1 > MAX_CONTEXT_CHARS:
+            break
+        kept.insert(0, row)
+        used += len(row) + 1
+    return head + "\n".join(kept) if kept else CORRECTIONS_MARKER + f": read `{path}` before routing."
+
+
+def build_context(part):
+    return build_rules() if part == "rules" else build_corrections()
+
+
+def session_marker(session_id, part):
+    """Marker file recording that this session already has that part of the routing context."""
     if not session_id or not isinstance(session_id, str):
         return None
     safe = "".join(ch for ch in session_id if ch.isalnum() or ch in "-_")
-    return router_dir() / "sessions" / safe if safe else None
+    return router_dir() / "sessions" / (safe + ("" if part == "rules" else "." + part)) if safe else None

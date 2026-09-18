@@ -1,6 +1,6 @@
 ---
 name: setup
-description: Set up which model the model-router plugin uses for its Building and Operational tiers, and verify that each model actually answers on this provider. Use when the user wants to configure or change the router's models, when a builder or operator subagent fails with a model error, after installing the plugin under a new config directory or gateway (Bedrock, Vertex, Foundry), or when asked whether sonnet/haiku work here.
+description: Set up which model the model-router plugin uses for its Building, Operational and Diagnosis tiers, and verify that each model actually answers on this provider. Use when the user wants to configure or change the router's models, when a builder or operator subagent fails with a model error, after installing the plugin under a new config directory or gateway (Bedrock, Vertex, Foundry), or when asked whether sonnet/haiku work here.
 ---
 
 # model-router setup
@@ -35,7 +35,7 @@ A tier's model must be one of the aliases the `Agent` tool accepts: `haiku`, `so
 
 - **Alias failed, but the provider has that model under another name**: ask the user for the model id or deployment name, `check` it, and if it answers, map the alias to it (step 4). Do not guess deployment names.
 - **Nothing cheaper than the main model works**: still set the tiers to a working alias. Delegation keeps tool calls out of the main context, which is most of the saving even at the same price per token.
-- **Operational tier on a model larger than haiku**: fine, only less cheap.
+- **Operational tier on a model larger than haiku**: fine, only less cheap. The senior operator (diagnosis, multi-step operational work) should stay a tier above the operator; if only one model works, both use it.
 - `FALLBACK` is not a pass. The tier would silently run on the other model; treat it like a FAIL for that alias and say which model answered.
 
 ## 4. Apply
@@ -43,7 +43,7 @@ A tier's model must be one of the aliases the `Agent` tool accepts: `haiku`, `so
 Tier models (stored in `<config dir>/model-router/config.json`, read by the plugin's session hook):
 
 ```
-python3 <skill dir>/scripts/models.py set builder=sonnet operator=haiku
+python3 <skill dir>/scripts/models.py set builder=sonnet operator=haiku senior_operator=sonnet
 ```
 
 Alias mapping, only when the user gave you a model id that checked `OK`. This writes `ANTHROPIC_DEFAULT_<ALIAS>_MODEL` into the `env` block of `<config dir>/settings.json` — the user's own settings file — so state exactly what will be written and get a yes first. The script backs the file up before writing.

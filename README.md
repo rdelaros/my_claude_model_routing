@@ -8,15 +8,17 @@ Automatic model routing for Claude Code — uses the cheapest model capable of e
 |---|---|---|
 | **Thinking** | Main session (your selected model) | Architecture, design, trade-offs, discussions. Never delegated. |
 | **Building** | `model-router:builder` — sonnet by default | Code edits, file creation, test writing. Runs in parallel subagents. |
-| **Operational** | `model-router:operator` — haiku by default | Git, pull and merge requests (Azure DevOps, GitLab, GitHub), pipelines, Azure CLI lookups, Terraform plans, Kubernetes and Helm reads, deployments, job runs, queries, Jira/Confluence updates. |
+| **Coordination** | `model-router:coordinator` — the main model, in the background | An approved plan too big for one builder: splits it into work packages, runs builders in parallel, runs the full test suite, reports once. |
+| **Operational** | `model-router:operator` — haiku by default | Known commands, reported as they come: git, pull and merge requests (Azure DevOps, GitLab, GitHub), pipelines, Azure CLI lookups, Terraform plans, Kubernetes and Helm reads, deployments, job runs, queries, Jira/Confluence updates. |
+| **Diagnosis** | `model-router:senior-operator` — sonnet by default | Operational work that needs judgement: why a pipeline, plan or job failed, investigations across repos or resources, chains where each step decides the next, rebases that hit conflicts, and anything the operator got wrong. Reports the cause and the next step. |
 
-The operator runs in the background (`background: true` in its definition). When you ask for a pull, a pipeline check or a deployment, the main session launches it, tells you in one line what is running, and hands the prompt back — you keep working and get the result when it finishes. Builders stay in the foreground of the plan they belong to, because the main session needs their results to integrate.
+The operators and the coordinator run in the background (`background: true` in their definitions). When you ask for a pull, a pipeline check, a deployment or a multi-file implementation, the main session launches the agent, tells you in one line what is running, and hands the prompt back — you keep working and get the result when it finishes. A single builder stays in the foreground, because the main session needs its result to continue.
 
 The plugin ships four things:
 
-- `agents/` — the `builder` and `operator` subagents, with a default model and effort in their frontmatter.
+- `agents/` — the `builder`, `operator`, `senior-operator` and `coordinator` subagents, with a default model and effort in their frontmatter.
 - `rules/routing.md` — the routing rules: tiers, how to classify, when to delegate, the confirmation gate.
-- `hooks/` — a `SessionStart` hook that injects `rules/routing.md` plus your recorded routing corrections into every session, a fallback that injects them on the next prompt when the session was already open, a `UserPromptSubmit` hook that tells you when `/compact` would pay off, and a `SubagentStop` hook that sends an over-long subagent report back for a summary. Nothing needs to be pasted into `CLAUDE.md`.
+- `hooks/` — `SessionStart` hooks that inject `rules/routing.md` and your recorded routing corrections into every session, a fallback that injects them on the next prompt when the session was already open, a `PreToolUse` hook that gives every subagent launch its tier's model when the call omits it, a `UserPromptSubmit` hook that tells you when `/compact` would pay off, and a `SubagentStop` hook that sends an over-long subagent report back for a summary. Nothing needs to be pasted into `CLAUDE.md`.
 - `skills/setup/` — `/model-router:setup`, which checks which models answer on your provider and sets the model for each tier.
 
 ## Installation
@@ -47,6 +49,10 @@ agent: model-router:operator
 
 Your own agents (`~/.claude/agents/*.md`) are not touched by the plugin: without a `model:` line in their frontmatter they run on the main model. Add `model: haiku` or `model: sonnet` to the ones that do operational or implementation work.
 
+**The model is set on every launch, not only asked for.** The rules tell the main session to pass the tier's `model` on each `Agent()` call, but a session under a long conversation forgets: in the measured sessions two `Explore` agents launched without a model ran on the main model for 7% of the session's cost. A `PreToolUse` hook (`hooks/agent-model.py`) now completes any `Agent` call that omits `model`: the plugin's own agents get their tier's model, `Explore` gets the operator's, `Plan` and the coordinator stay on the main model, and every other agent type keeps Claude Code's default. An explicit `model` in the call always wins, and the hook makes no permission decision, so prompts behave as before. To route your own agents, set `MODEL_ROUTER_AGENT_MODELS` to `agent-type=tier` pairs, e.g. `my-reviewer=senior_operator,my-scout=operator`. It runs inside subagents too, so the coordinator's builders are covered.
+
+A subagent launched with a `model` keeps it when it is later resumed or messaged (verified on 2.1.275), so the rules allow the main session to continue a finished agent when its context is worth more than a fresh start.
+
 ## Choosing the models
 
 Not every provider serves every model: a Bedrock, Vertex or Foundry gateway may have no haiku deployment, or serve it under its own name. Run `/model-router:setup` inside the session you want to configure. It:
@@ -60,7 +66,7 @@ Tier choices are stored in `<config dir>/model-router/config.json`, and the sess
 
 If no model cheaper than your main one is available, delegation still pays: the tool calls run over a small fresh context instead of the whole conversation, which is most of the saving.
 
-The helper also works on its own: `python3 skills/setup/scripts/models.py show | check [model ...] | set builder=<alias> operator=<alias> | map <alias>=<model-id> | unmap <alias>`.
+The helper also works on its own: `python3 skills/setup/scripts/models.py show | check [model ...] | set builder=<alias> operator=<alias> senior_operator=<alias> | map <alias>=<model-id> | unmap <alias>`.
 
 ## Confirmation gate
 
@@ -77,6 +83,15 @@ Reads and plans are free: the operator runs `terraform plan`, `az ... show|list`
 
 Terraform, Bicep, Helm and pipeline YAML edits are Building work: the builder formats and validates what it touched and never runs a plan or apply.
 
+## Two operators
+
+Operational work splits by how much thought it needs, and the split is what makes it both cheap and fast.
+
+- The **operator** (haiku, low effort) runs known commands and reports their output: pull, rebase, open the MR, check the pipeline, run the plan, list what is deployed. A small model does these in seconds for a fraction of the price, and a wrong answer is cheap to spot.
+- The **senior operator** (sonnet, medium effort) gets the tasks where the output has to be understood before the next command is chosen: why a pipeline, plan or job failed, an investigation across repositories or resources, a chain where each step decides the next, a rebase that hits conflicts. A small model on these retries, wanders and comes back with the wrong cause; the main session then re-launches, or worse, does the work itself on the most expensive model. One sonnet run that returns the cause and the next step is cheaper and faster than that. It also takes anything the operator has already got wrong.
+
+Both have the same tool rules and confirmation gate, never edit code, and run in the background. The senior operator reports in under 200 words, leading with the finding, so the main session can act without asking it again; the operator reports in under 100.
+
 ## Why it routes on the work, not the wording
 
 The rules were tuned against 816 real prompts from 37 sessions. Three findings shaped them:
@@ -89,7 +104,7 @@ Operational work was 41% of prompts and 50% of cost; building 20% and 37%; think
 
 ## Customizing
 
-Edit `rules/routing.md` to match your workflow — the "Typical Operational / Building / Thinking" examples are hints for the model, not match patterns. The operator's tool-specific rules (Azure CLI, Azure DevOps, Terraform, GitLab, GitHub, Kubernetes/Helm, Databricks, Jira) apply only when a task involves those tools. The operator inherits every tool the session has, including MCP servers, except the file-editing tools.
+Edit `rules/routing.md` to match your workflow — the classification examples are hints for the model, not match patterns. The operators' tool-specific rules (Azure CLI, Azure DevOps, Terraform, GitLab, GitHub, Kubernetes/Helm, Databricks, Jira) apply only when a task involves those tools. Both operators inherit every tool the session has, including MCP servers, except the file-editing tools.
 
 ## Keeping the context small
 
@@ -120,13 +135,15 @@ Replaying the measured gateway sessions with both settings gave an estimated 61%
 
 ## Parallel implementation
 
-When you approve a plan, the main session splits it into independent work packages and launches one `builder` per package. Each builder touches only its own files and runs only its scoped tests; the main session runs the full suite once after they return. Sequential dependencies are kept sequential.
+When you approve a plan that fits in one or two files, the main session launches one `builder` with the files and the scoped tests. A bigger plan — several files or modules, or parts that must happen in order — goes whole to the `coordinator`: the plan, the repository path, the test command and the builder model. The coordinator runs on the main model in a fresh context, in the background. It splits the plan into work packages with no shared files, launches one `builder` per package in parallel, runs the full test suite once, sends failures back to builders for at most two fix rounds, and reports once in under 250 words: packages, tests, blockers. The main session judges that report and talks to you; it never sits through the builders' own reports.
+
+The coordinator has no editing tools, so it cannot drift into implementing the plan itself, and its `Agent` tool is limited to `model-router:builder`, so it cannot spawn anything else. It does not commit, push or deploy unless the plan says so, and it cannot ask questions — give it everything up front.
 
 ## Continuous improvement
 
 When you correct a routing decision ("don't delegate this", "this should be haiku"), the correction is appended to `<config dir>/model-router/routing-feedback.md` (`~/.claude/model-router/` unless `CLAUDE_CONFIG_DIR` says otherwise). The exact path is shown in the injected context. The hook injects the corrections at the start of every session, in every project, and they override the shipped rules. It is plain markdown — edit or delete rows freely.
 
-Session-start context is capped at 4,000 characters, so the hook injects the rules plus as many of the most recent corrections as fit, and points to the file for the rest. Keep `rules/routing.md` compact when you customize it — every character added there is one fewer for corrections. Once a correction has proven itself, fold it into the rules and delete the row.
+What a hook injects is capped at 4,000 characters, so the rules and the corrections are injected by two separate hook commands, each with its own budget: the rules must fit in 4,000 characters (keep `rules/routing.md` compact when you customize it — the session-start hook truncates it otherwise), and the corrections get another 4,000, the most recent rows kept when they do not all fit. Once a correction has proven itself, fold it into the rules and delete the row.
 
 ## Optimising another machine
 

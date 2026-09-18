@@ -71,7 +71,7 @@ Verify the names against the installed version before relying on them (`claude -
 
 ## Step 4 — Install the model-router plugin
 
-The plugin keeps the main session for thinking and sends tool work to cheaper subagents with a small fresh context: a Sonnet `builder` for agreed changes and a background Haiku `operator` for git, PRs and MRs, pipelines, cloud and infra CLIs, queries and Jira. It also warns when `/compact` would pay off. Its `README.md` explains the design.
+The plugin keeps the main session for thinking and sends tool work to cheaper subagents with a small fresh context: a Sonnet `builder` for agreed changes (a `coordinator` splits big plans across builders), a background Haiku `operator` for git, PRs and MRs, pipelines, cloud and infra CLIs, queries and Jira, and a Sonnet `senior-operator` for the operational work that needs diagnosis. It also warns when `/compact` would pay off. Its `README.md` explains the design.
 
 Install per config directory, from whichever source this machine can reach:
 
@@ -168,7 +168,7 @@ So you know what to look for — not to be assumed here.
 - 45 skills were installed; 5 were ever used. Moving 33 to `skills-disabled/` cut the descriptions loaded per session from 15,700 to 4,000 characters.
 - None of the user's eight agents had a `model:` line.
 - A plugin installed mid-session did nothing until the next session, because its rules were injected only at session start. The plugin now covers that case.
-- Session-start context injected by a hook is capped at 4,000 characters.
+- Context injected by a hook is capped at 4,000 characters per hook command; split what you inject across commands when it is more.
 
 ## Appendix — `session_report.py`
 

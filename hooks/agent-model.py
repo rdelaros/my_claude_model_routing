@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+"""PreToolUse hook on Agent: fill in the `model` of a subagent launch that omits it.
+
+The routing rules ask the main session to pass the tier's model on every Agent() call;
+this hook makes it certain. A launch that already names a model is left alone (an
+explicit choice wins), and so is any agent type the tiers say nothing about — those
+keep Claude Code's own default. No permission decision is made, so the normal
+permission flow is unchanged; only the input is completed.
+
+Local-only and fail-open: any error exits 0 with no output.
+
+Tunable (environment):
+  MODEL_ROUTER_AGENT_MODELS   extra `agent-type=tier` pairs, comma-separated, tier one of
+                              builder, operator, senior_operator, main — e.g.
+                              "my-reviewer=senior_operator,my-scout=operator"
+"""
+import json
+import os
+import sys
+
+from router_context import tier_models
+
+# agent type -> tier whose model it gets ("main" = leave it on the main model)
+TIER_OF = {
+    "model-router:builder": "builder",
+    "model-router:operator": "operator",
+    "model-router:senior-operator": "senior_operator",
+    "model-router:coordinator": "main",
+    "Explore": "operator",  # read-only search
+    "Plan": "main",  # design work
+}
+
+
+def extra_pairs():
+    out = {}
+    for pair in os.environ.get("MODEL_ROUTER_AGENT_MODELS", "").split(","):
+        agent, _, tier = pair.strip().partition("=")
+        if agent and tier:
+            out[agent] = tier
+    return out
+
+
+def main():
+    payload = json.load(sys.stdin)
+    if payload.get("tool_name") != "Agent":
+        return
+    tool_input = payload.get("tool_input") or {}
+    if tool_input.get("model"):
+        return
+    tier = {**TIER_OF, **extra_pairs()}.get(str(tool_input.get("subagent_type") or ""))
+    model = tier_models().get(tier) if tier else None
+    if not model:
+        return
+    json.dump({"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": {**tool_input, "model": model}}}, sys.stdout)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception:
+        pass
+    sys.exit(0)
