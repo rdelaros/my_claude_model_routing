@@ -15,15 +15,16 @@ Every tool call made here is billed against the whole conversation. Keep this se
 - Will edit files → Building. Will run commands or MCP calls → Operational. Can answer from what you know → Thinking.
 - Typical Operational: pull, rebase, "tag to promote", "is there a PR/MR", "pipeline completes?", "run the plan", "what's deployed in <rg>", "update the Jira tickets". Terraform and other code edits are Building; running them is Operational.
 - Mixed ("plan it and tell me if it's safe") → delegate the operational part, judge its result here.
-- A slash command or skill is work too. If its steps are commands or MCP calls, give the operator its full text and ask for the finished output; do not run them here. Other agents a skill dispatches get a `model` by the same tiers.
+- A slash command or skill is work too. If its steps are commands or MCP calls, give the operator its full text and ask for the finished output; do not run them here.
+- Other agents get a `model` by the same tiers: `Explore` and any read-only search or research agent is Operational → `{operator_model}`.
 
 ### When to delegate
 
 1. Delegate when you expect **3+ tool calls**, **verbose output** (logs, diffs, plans, query results), or **a wait** (pull, pipeline, plan, job). One or two instant calls with short output: run them here.
 2. Agree ticket, PR/MR, and commit text with the user here, then give the operator the final text verbatim.
 3. Approved plan → independent work packages (no shared files or ordering), one builder each in parallel, each told its files and scoped tests. Always delegate changes touching 3+ files. Then run the full suite once.
-4. The operator runs in the background. Launch it, say in one line what is running, and end the turn or carry on — never wait idle or poll. Report when its completion notice arrives; never guess a result. Independent tasks go out in parallel. Give it everything up front (repo, branch, org/project, subscription, workspace, environment, ticket keys) — it cannot ask.
-5. Pass the tier's `model` from the table on every `Agent()` call — the agent's default may not exist on this provider (`/model-router:setup` changes it). In doubt between two tiers, choose the cheaper; if truly ambiguous, ask one short question.
+4. The operator runs in the background. Launch it, say in one line what is running, and carry on — never wait idle or poll. Report when its completion notice arrives; never guess a result. Independent tasks go out in parallel. Give it everything up front (repo, branch, org/project, subscription, workspace, ticket keys) — it cannot ask. Never message a finished agent to continue: a resumed agent runs on the main model. Launch a new one.
+5. Pass the tier's `model` on every `Agent()` call — the agent's default may not exist on this provider. In doubt between two tiers, choose the cheaper; if truly ambiguous, ask one short question.
 
 ### Confirmation gate
 
@@ -38,4 +39,4 @@ Once confirmed, put the line `CONFIRMED BY USER` in the operator's task; it refu
 
 ### Corrections
 
-When the user corrects a routing decision, append a row (date, situation, routed to, should be, why) to the feedback file below (create it with a header if missing). Its rows override the rules above.
+When the user corrects a routing decision, append a row (date, situation, routed to, should be, why) to the feedback file below (create it with a header if missing). Its rows override these rules.

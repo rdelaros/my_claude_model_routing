@@ -130,7 +130,7 @@ Session-start context is capped at 4,000 characters, so the hook injects the rul
 
 ## Optimising another machine
 
-`docs/optimize-a-machine.md` is a playbook for a Claude Code session on another machine: measure how Claude Code is used there, set the two settings, install this plugin (from a copied folder if the machine cannot reach the repository), prune unused skills and plugins, and make expensive commands run in a fresh context. `tools/session_report.py` is the read-only measurement script it uses: `python3 tools/session_report.py ~/.claude [other config dirs]`.
+`docs/optimize-a-machine.md` is a playbook for a Claude Code session on another machine: measure how Claude Code is used there, set the two settings, install this plugin (from a copied folder if the machine cannot reach the repository), prune unused skills and plugins, and make expensive commands run in a fresh context. `tools/session_report.py` is the read-only measurement script it uses: `python3 tools/session_report.py ~/.claude [other config dirs]`. `tools/before_after.py` compares the sessions that had the routing rules with the ones before: `python3 tools/before_after.py ~/.claude [other config dirs]`.
 
 ## Requirements
 
