@@ -103,6 +103,8 @@ for cfg in dirs:
                 T[k].append(cur["end"] - cur["start"]); T["all"].append(cur["end"] - cur["start"])
             if k == "ops in main":
                 G["ops_calls"] += cur["ops"]
+            if cur["ops"] >= 3:
+                G["p_heavy"] += 1; G["c_heavy"] += cur["cost"]
         G["prompts"] += prompts; G["sessions"] += 1
 
     print(f"\n{'=' * 70}\n{cfg}")
@@ -120,5 +122,6 @@ for cfg in dirs:
         for k in ("thinking", "building", "ops in main", "delegated"):
             print(f"  {k:12} prompts {int(G['p_' + k]):4} ({G['p_' + k] / P:4.0%})  cost {G['c_' + k] / C:4.0%}  median {quantile(T[k], .5):5,.0f}s")
         print(f"  Bash/MCP calls in the main session per operational prompt: {G['ops_calls'] / (G['p_ops in main'] or 1):.1f}")
+        print(f"  prompts with 3+ Bash/MCP calls in main: {int(G['p_heavy'])} ({G['p_heavy'] / P:.0%} of prompts), {G['c_heavy'] / C:.0%} of cost")
         print(f"  subagent launches: {int(G['subs'])}, with a model set: {int(G['subs_with_model'])}")
         print(f"  agent reports back: {int(G['reports'])}, mean {G['report_chars'] / (G['reports'] or 1):,.0f} chars, over 4,000: {int(G['reports_long'])}")

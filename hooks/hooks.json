@@ -1,5 +1,5 @@
 {
-  "description": "model-router hooks: inject the routing rules at session start (or on the next prompt if the session was already open), give every subagent launch its tier's model, tell the user when /compact would pay off, and send an over-long subagent report back for a summary.",
+  "description": "model-router hooks: inject the routing rules at session start (or on the next prompt if the session was already open), give every subagent launch its tier's model, tell the user when /compact would pay off, nudge the main session to delegate after a run of command/MCP calls, block session forks, and send an over-long subagent report back for a summary.",
   "hooks": {
     "SessionStart": [
       {
@@ -33,6 +33,11 @@
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/context-watch.py\" || python \"${CLAUDE_PLUGIN_ROOT}/hooks/context-watch.py\" || true",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/ops-nudge.py\" reset || python \"${CLAUDE_PLUGIN_ROOT}/hooks/ops-nudge.py\" reset || true",
+            "timeout": 5
           }
         ]
       }
@@ -44,6 +49,18 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/agent-model.py\" || python \"${CLAUDE_PLUGIN_ROOT}/hooks/agent-model.py\" || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/ops-nudge.py\" count || python \"${CLAUDE_PLUGIN_ROOT}/hooks/ops-nudge.py\" count || true",
             "timeout": 5
           }
         ]

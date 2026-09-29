@@ -7,12 +7,16 @@ explicit choice wins), and so is any agent type the tiers say nothing about — 
 keep Claude Code's own default. No permission decision is made, so the normal
 permission flow is unchanged; only the input is completed.
 
+A `fork` launch is denied: a fork copies the whole conversation and runs on the main
+model, which defeats the routing. The denial tells the session which agent to use.
+
 Local-only and fail-open: any error exits 0 with no output.
 
 Tunable (environment):
   MODEL_ROUTER_AGENT_MODELS   extra `agent-type=tier` pairs, comma-separated, tier one of
                               builder, operator, senior_operator, main — e.g.
                               "my-reviewer=senior_operator,my-scout=operator"
+  MODEL_ROUTER_ALLOW_FORK     set to 1 to allow `subagent_type: "fork"` launches
 """
 import json
 import os
@@ -30,6 +34,11 @@ TIER_OF = {
     "Plan": "main",  # design work
 }
 
+FORK_DENIED = (
+    "model-router: a fork copies the whole conversation onto the main model. "
+    "Launch model-router:operator, model-router:senior-operator, Explore or model-router:builder with a self-contained prompt instead."
+)
+
 
 def extra_pairs():
     out = {}
@@ -45,6 +54,9 @@ def main():
     if payload.get("tool_name") != "Agent":
         return
     tool_input = payload.get("tool_input") or {}
+    if tool_input.get("subagent_type") == "fork" and os.environ.get("MODEL_ROUTER_ALLOW_FORK") != "1":
+        json.dump({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": FORK_DENIED}}, sys.stdout)
+        return
     if tool_input.get("model"):
         return
     tier = {**TIER_OF, **extra_pairs()}.get(str(tool_input.get("subagent_type") or ""))
