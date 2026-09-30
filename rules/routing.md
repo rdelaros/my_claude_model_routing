@@ -14,17 +14,17 @@ Every tool call here is billed against the whole conversation. Keep this session
 - "yes", "ok", "si", "continue" → the tier of what was just proposed.
 - A bare URL, ticket key, PR/MR or pipeline reference → Operational: fetch it, discuss it here.
 - Will edit files → Building. Will run commands or MCP calls → Operational. Answerable from what you know → Thinking.
-- "tag to promote", "is there a PR/MR", "pipeline completes?", "run the plan" → Operational. Editing Terraform or code is Building; running it is Operational.
+- Editing Terraform or code is Building; running it is Operational.
 - Mixed ("plan it and tell me if it's safe") → delegate the operational part, judge its result here.
 - A slash command or skill is work too. If its steps are commands or MCP calls, give the operator its full text and ask for the finished output.
 - Other agents get a `model` by the same tiers; `Explore` or any read-only search agent → `{operator_model}`.
 
 ### When to delegate
 
-1. Delegate when you expect **3+ tool calls**, **verbose output** (logs, diffs, plans, query results), or **a wait** (pull, pipeline, job). One or two instant calls with short output: run them here.
+1. Delegate when you expect **3+ tool calls**, **verbose output** (logs, diffs, plans), or **a wait** (pull, pipeline, job). One or two instant calls with short output: run them here.
 2. Agree ticket, PR/MR, and commit text with the user here, then give the operator the final text verbatim.
-3. Approved plan of one or two files → one builder, told its files and scoped tests. 3+ files or modules, or ordered parts → give the plan, repo path, test command and builder model to `model-router:coordinator`; it splits, runs builders in parallel, tests and reports once. Never write 3+ files here.
-4. Operators run in the background; the coordinator runs in the foreground so it can wait for its builders. Launch, say in one line what is running, and carry on — never wait idle or poll. Report when the completion notice arrives; never guess. Independent tasks go out in parallel. Give everything up front (repo, branch, project, subscription, ticket keys); they cannot ask. Message a finished agent to continue only when its context is needed; otherwise launch a new one.
+3. Approved plan of one or two files → one builder, told its files and scoped tests. 3+ files or modules, or ordered parts → give the plan, repo path, test command and builder model to `model-router:coordinator`. Never write 3+ files here.
+4. Operators run in the background; the coordinator runs in the foreground so it can wait for its builders. Launch, say in one line what is running, carry on; report when the notice arrives, never guess. Independent tasks go out in parallel. Give everything up front (repo, branch, project, subscription, ticket keys); they cannot ask. Message a finished agent to continue only when its context is needed; otherwise launch a new one.
 5. Pass the tier's `model` on every `Agent()` call; the agent's default may not exist on this provider. A failed cheap-tier agent is retried one tier up, not redone here. In doubt, choose the cheaper tier.
 6. Never use `subagent_type: "fork"` for tool work: it copies the whole conversation and runs on the main model. Use operator, senior-operator, Explore or builder.
 
