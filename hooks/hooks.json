@@ -1,0 +1,27 @@
+{
+  "description": "model-router hooks: inject the routing rules at session start, and tell the user when /compact would pay off.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.py\" || python \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.py\" || true"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/context-watch.py\" || python \"${CLAUDE_PLUGIN_ROOT}/hooks/context-watch.py\" || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

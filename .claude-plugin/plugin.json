@@ -1,0 +1,16 @@
+{
+  "name": "model-router",
+  "description": "Automatic model routing — thinking stays in the main session, building goes to parallel sonnet subagents, operational work goes to a haiku subagent.",
+  "version": "1.2.0",
+  "author": {
+    "name": "Ramon de la Rosa"
+  },
+  "homepage": "https://github.com/rdelaros/my_claude_model_routing",
+  "repository": "https://github.com/rdelaros/my_claude_model_routing",
+  "keywords": [
+    "model-routing",
+    "cost-optimization",
+    "subagents",
+    "parallel-implementation"
+  ]
+}

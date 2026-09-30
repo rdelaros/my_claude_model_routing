@@ -1,0 +1,18 @@
+{
+  "name": "model-routing",
+  "description": "Marketplace for the model-router Claude Code plugin",
+  "owner": {
+    "name": "Ramon de la Rosa"
+  },
+  "plugins": [
+    {
+      "name": "model-router",
+      "description": "Automatic model routing — thinking stays in the main session, building goes to parallel sonnet subagents, operational work goes to a haiku subagent.",
+      "version": "1.2.0",
+      "source": "./",
+      "author": {
+        "name": "Ramon de la Rosa"
+      }
+    }
+  ]
+}
