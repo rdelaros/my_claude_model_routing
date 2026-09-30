@@ -8,11 +8,11 @@ Automatic model routing for Claude Code — uses the cheapest model capable of e
 |---|---|---|
 | **Thinking** | Main session (your selected model) | Architecture, design, trade-offs, discussions. Never delegated. |
 | **Building** | `model-router:builder` — sonnet by default | Code edits, file creation, test writing. Runs in parallel subagents. |
-| **Coordination** | `model-router:coordinator` — the main model, in the background | An approved plan too big for one builder: splits it into work packages, runs builders in parallel, runs the full test suite, reports once. |
+| **Coordination** | `model-router:coordinator` — the main model, in the foreground | An approved plan too big for one builder: splits it into work packages, runs builders in parallel, runs the full test suite, reports once. |
 | **Operational** | `model-router:operator` — haiku by default | Known commands, reported as they come: git, pull and merge requests (Azure DevOps, GitLab, GitHub), pipelines, Azure CLI lookups, Terraform plans, Kubernetes and Helm reads, deployments, job runs, queries, Jira/Confluence updates. |
 | **Diagnosis** | `model-router:senior-operator` — sonnet by default | Operational work that needs judgement: why a pipeline, plan or job failed, investigations across repos or resources, chains where each step decides the next, rebases that hit conflicts, and anything the operator got wrong. Reports the cause and the next step. |
 
-The operators and the coordinator run in the background (`background: true` in their definitions). When you ask for a pull, a pipeline check, a deployment or a multi-file implementation, the main session launches the agent, tells you in one line what is running, and hands the prompt back — you keep working and get the result when it finishes. A single builder stays in the foreground, because the main session needs its result to continue.
+The operators run in the background (`background: true` in their definitions). When you ask for a pull, a pipeline check or a deployment, the main session launches the agent, tells you in one line what is running, and hands the prompt back — you keep working and get the result when it finishes. Builders and the coordinator stay in the foreground: the main session needs a builder's result to continue, and a background coordinator cannot wait for its own builders — its launches return immediately and it reports before they finish.
 
 The plugin ships four things:
 
@@ -139,7 +139,7 @@ Replaying the measured gateway sessions with both settings gave an estimated 61%
 
 ## Parallel implementation
 
-When you approve a plan that fits in one or two files, the main session launches one `builder` with the files and the scoped tests. A bigger plan — several files or modules, or parts that must happen in order — goes whole to the `coordinator`: the plan, the repository path, the test command and the builder model. The coordinator runs on the main model in a fresh context, in the background. It splits the plan into work packages with no shared files, launches one `builder` per package in parallel, runs the full test suite once, sends failures back to builders for at most two fix rounds, and reports once in under 250 words: packages, tests, blockers. The main session judges that report and talks to you; it never sits through the builders' own reports.
+When you approve a plan that fits in one or two files, the main session launches one `builder` with the files and the scoped tests. A bigger plan — several files or modules, or parts that must happen in order — goes whole to the `coordinator`: the plan, the repository path, the test command and the builder model. The coordinator runs on the main model in a fresh context, in the foreground. It splits the plan into work packages with no shared files, launches one `builder` per package in parallel, runs the full test suite once, sends failures back to builders for at most two fix rounds, and reports once in under 250 words: packages, tests, blockers. The main session judges that report and talks to you; it never sits through the builders' own reports.
 
 The coordinator has no editing tools, so it cannot drift into implementing the plan itself, and its `Agent` tool is limited to `model-router:builder`, so it cannot spawn anything else. It does not commit, push or deploy unless the plan says so, and it cannot ask questions — give it everything up front.
 
