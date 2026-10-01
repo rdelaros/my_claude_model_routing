@@ -16,8 +16,7 @@ agents and for pipelines. Agent reports are the tool results of Agent/Task calls
 ("Async agent launched successfully", toolUseResult.status "async_launched") is not a report.
 "over N" uses MODEL_ROUTER_REPORT_CHARS (default 4000), the budget of hooks/report-budget.py. Set SKIP_SESSION=<id> to leave one out.
 """
-import collections, glob, json, os, re, sys
-from datetime import datetime
+import calendar, collections, glob, json, os, re, sys
 
 dirs = [os.path.expanduser(d) for d in (sys.argv[1:] or ["~/.claude"])]
 SKIP = os.environ.get("SKIP_SESSION", "")
@@ -25,6 +24,19 @@ try:
     LONG = int(os.environ.get("MODEL_ROUTER_REPORT_CHARS") or 4000)
 except ValueError:
     LONG = 4000
+
+def iso_to_epoch(stamp):
+    """Seconds since the epoch for an ISO-8601 timestamp such as 2026-09-30T17:15:21.123Z (any Python 3)."""
+    m = re.match(r"(\d{4})-(\d\d)-(\d\d)[T ](\d\d):(\d\d):(\d\d)(?:\.\d+)?(Z|[+-]\d\d:?\d\d)?$", str(stamp).strip())
+    if not m:
+        raise ValueError("not an ISO timestamp: %r" % (stamp,))
+    y, mo, d, h, mi, s, tz = m.groups()
+    epoch = calendar.timegm((int(y), int(mo), int(d), int(h), int(mi), int(s), 0, 0, 0))
+    if tz and tz != "Z":
+        sign = -1 if tz[0] == "-" else 1
+        epoch -= sign * (int(tz[1:3]) * 3600 + int(tz[-2:]) * 60)
+    return epoch
+
 
 
 def writes(u):
@@ -42,7 +54,7 @@ def cost(u):
 
 def when(r):
     try:
-        return datetime.fromisoformat(r["timestamp"].replace("Z", "+00:00")).timestamp()
+        return iso_to_epoch(r["timestamp"])
     except (KeyError, ValueError, AttributeError, TypeError):
         return None
 
@@ -169,21 +181,21 @@ for cfg in dirs:
                 G["p_heavy"] += 1; G["c_heavy"] += cur["cost"]
         G["prompts"] += prompts; G["sessions"] += 1
 
-    print(f"\n{'=' * 70}\n{cfg}")
+    print('\n{0}\n{1}'.format('=' * 70, cfg))
     for g in ("before", "after"):
         G = groups[g]; P = G["prompts"] or 1; C = G["cost"] or 1
-        print(f"\n[{g}] sessions {int(G['sessions'])}, prompts {int(G['prompts'])}, compactions {int(G['compactions'])}, api calls {int(G['calls'])}")
+        print('\n[{0}] sessions {1}, prompts {2}, compactions {3}, api calls {4}'.format(g, int(G['sessions']), int(G['prompts']), int(G['compactions']), int(G['calls'])))
         if not G["calls"]:
             continue
-        print(f"  cost per prompt (units):       {C / P:10,.0f}")
-        print(f"  mean context per call:         {G['ctx_sum'] / G['calls']:10,.0f} tokens")
-        print(f"  calls at 200k+ context:        {G['calls_200k'] / G['calls']:10.0%} of calls, {G['cost_200k'] / C:.0%} of cost")
-        print(f"  cache writes: 5-minute TTL {G['ttl_5m']:,.0f} tok | 1-hour TTL {G['ttl_1h']:,.0f} tok")
+        print('  cost per prompt (units):       {0:10,.0f}'.format(C / P))
+        print('  mean context per call:         {0:10,.0f} tokens'.format(G['ctx_sum'] / G['calls']))
+        print('  calls at 200k+ context:        {0:10.0%} of calls, {1:.0%} of cost'.format(G['calls_200k'] / G['calls'], G['cost_200k'] / C))
+        print('  cache writes: 5-minute TTL {0:,.0f} tok | 1-hour TTL {1:,.0f} tok'.format(G['ttl_5m'], G['ttl_1h']))
         T = seconds[g]
-        print(f"  time per prompt: median {quantile(T['all'], .5):,.0f}s, p90 {quantile(T['all'], .9):,.0f}s")
+        print('  time per prompt: median {0:,.0f}s, p90 {1:,.0f}s'.format(quantile(T['all'], 0.5), quantile(T['all'], 0.9)))
         for k in ("thinking", "building", "ops in main", "delegated"):
-            print(f"  {k:12} prompts {int(G['p_' + k]):4} ({G['p_' + k] / P:4.0%})  cost {G['c_' + k] / C:4.0%}  median {quantile(T[k], .5):5,.0f}s")
-        print(f"  Bash/MCP calls in the main session per operational prompt: {G['ops_calls'] / (G['p_ops in main'] or 1):.1f}")
-        print(f"  prompts with 3+ Bash/MCP calls in main: {int(G['p_heavy'])} ({G['p_heavy'] / P:.0%} of prompts), {G['c_heavy'] / C:.0%} of cost")
-        print(f"  subagent launches: {int(G['subs'])}, with a model set: {int(G['subs_with_model'])}")
-        print(f"  agent reports back: {int(G['reports'])}, mean {G['report_chars'] / (G['reports'] or 1):,.0f} chars, over {LONG:,}: {int(G['reports_long'])}")
+            print('  {0:12} prompts {1:4} ({2:4.0%})  cost {3:4.0%}  median {4:5,.0f}s'.format(k, int(G['p_' + k]), G['p_' + k] / P, G['c_' + k] / C, quantile(T[k], 0.5)))
+        print('  Bash/MCP calls in the main session per operational prompt: {0:.1f}'.format(G['ops_calls'] / (G['p_ops in main'] or 1)))
+        print('  prompts with 3+ Bash/MCP calls in main: {0} ({1:.0%} of prompts), {2:.0%} of cost'.format(int(G['p_heavy']), G['p_heavy'] / P, G['c_heavy'] / C))
+        print('  subagent launches: {0}, with a model set: {1}'.format(int(G['subs']), int(G['subs_with_model'])))
+        print('  agent reports back: {0}, mean {1:,.0f} chars, over {2:,}: {3}'.format(int(G['reports']), G['report_chars'] / (G['reports'] or 1), LONG, int(G['reports_long'])))

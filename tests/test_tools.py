@@ -19,7 +19,7 @@ ASYNC_ACK = ("Async agent launched successfully. (This tool result is internal m
 
 
 def rec(kind, content, ts, **extra):
-    r = {"type": kind, "uuid": f"{kind}-{ts}", "timestamp": f"2026-09-30T10:{ts // 60:02}:{ts % 60:02}.000Z", "sessionId": "s1",
+    r = {"type": kind, "uuid": '{0}-{1}'.format(kind, ts), "timestamp": '2026-09-30T10:{0:02}:{1:02}.000Z'.format(ts // 60, ts % 60), "sessionId": "s1",
          "cwd": "/w", "message": {"role": kind, "content": content}}
     r.update(extra)
     return r
@@ -100,13 +100,13 @@ class ToolCase(unittest.TestCase):
         cls.tmp.cleanup()
 
     def run_tool(self, name):
-        p = subprocess.run([sys.executable, str(TOOLS / name), str(self.cfg)], capture_output=True, text=True, env=self.env, cwd=self.tmp.name)
+        p = subprocess.run([sys.executable, str(TOOLS / name), str(self.cfg)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, env=self.env, cwd=self.tmp.name)
         self.assertEqual(p.returncode, 0, p.stderr)
         return p.stdout
 
     def line(self, out, pattern):
         m = re.search(pattern, out, re.M)
-        self.assertIsNotNone(m, f"no line matching {pattern!r} in:\n{out}")
+        self.assertIsNotNone(m, 'no line matching {0!r} in:\n{1}'.format(pattern, out))
         return m
 
     def test_before_after(self):
@@ -131,7 +131,7 @@ class ToolCase(unittest.TestCase):
 
     def test_before_after_report_budget_env(self):
         env = dict(self.env, MODEL_ROUTER_REPORT_CHARS="6000")
-        p = subprocess.run([sys.executable, str(TOOLS / "before_after.py"), str(self.cfg)], capture_output=True, text=True, env=env, cwd=self.tmp.name)
+        p = subprocess.run([sys.executable, str(TOOLS / "before_after.py"), str(self.cfg)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, env=env, cwd=self.tmp.name)
         self.assertEqual(p.returncode, 0, p.stderr)
         self.line(p.stdout, r"agent reports back: 2, mean [\d,]+ chars, over 6,000: 0")
 

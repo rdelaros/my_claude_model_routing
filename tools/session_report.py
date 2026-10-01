@@ -9,13 +9,25 @@ Cost units are relative, at list-price ratios: input 1, cache read 0.1, 5-minute
 is priced as 5-minute writes). A prompt is a user record the person typed (text, pasted
 images/files, or a slash command); tool results, hook context and compaction summaries are not prompts.
 """
-import collections, glob, json, os, re, sys
-from datetime import datetime
+import calendar, collections, glob, json, os, re, sys
 
 dirs = [os.path.expanduser(d) for d in (sys.argv[1:] or ["~/.claude"])]
 BUILTIN = set("plugin reload-plugins clear compact model resume config mcp login logout exit effort context cost status help memory "
               "agents skills permissions doctor rename export usage fast init tasks hooks statusline copy rewind theme loop "
               "schedule workflows artifacts feedback stats ide vim add-dir sandbox".split())
+
+def iso_to_epoch(stamp):
+    """Seconds since the epoch for an ISO-8601 timestamp such as 2026-09-30T17:15:21.123Z (any Python 3)."""
+    m = re.match(r"(\d{4})-(\d\d)-(\d\d)[T ](\d\d):(\d\d):(\d\d)(?:\.\d+)?(Z|[+-]\d\d:?\d\d)?$", str(stamp).strip())
+    if not m:
+        raise ValueError("not an ISO timestamp: %r" % (stamp,))
+    y, mo, d, h, mi, s, tz = m.groups()
+    epoch = calendar.timegm((int(y), int(mo), int(d), int(h), int(mi), int(s), 0, 0, 0))
+    if tz and tz != "Z":
+        sign = -1 if tz[0] == "-" else 1
+        epoch -= sign * (int(tz[1:3]) * 3600 + int(tz[-2:]) * 60)
+    return epoch
+
 
 
 def writes(u):
@@ -33,7 +45,7 @@ def cost(u):
 
 def when(r):
     try:
-        return datetime.fromisoformat(r["timestamp"].replace("Z", "+00:00")).timestamp()
+        return iso_to_epoch(r["timestamp"])
     except (KeyError, ValueError, AttributeError, TypeError):
         return None
 
@@ -66,7 +78,7 @@ def typed_prompt(r):
 
 for cfg in dirs:
     files = glob.glob(os.path.join(cfg, "projects", "*", "*.jsonl"))
-    print(f"\n{'=' * 78}\n{cfg}: {len(files)} sessions")
+    print('\n{0}\n{1}: {2} sessions'.format('=' * 78, cfg, len(files)))
     if not files:
         continue
     beh = collections.defaultdict(lambda: [0, 0, 0.0])          # behaviour -> prompts, turns, cost
@@ -131,18 +143,18 @@ for cfg in dirs:
         beh[k][0] += 1; beh[k][1] += cur["turns"]; beh[k][2] += cur["cost"]
     total = total or 1.0
     print("main-session models:", dict(models.most_common(4)))
-    print(f"prompts: {len(opened)}, compactions: {compactions}")
+    print('prompts: {0}, compactions: {1}'.format(len(opened), compactions))
     print("\nwork type            prompts   turns   share of cost")
     for k, v in sorted(beh.items(), key=lambda kv: -kv[1][2]):
-        print(f"  {k:28} {v[0]:5} {v[1]:7}   {v[2] / total:6.1%}")
+        print('  {0:28} {1:5} {2:7}   {3:6.1%}'.format(k, v[0], v[1], v[2] / total))
     print("\ncontext size per call   calls   share of cost")
     for b in ("<100k", "100-200k", "200-400k", "400k+"):
-        print(f"  {b:10} {ctx_bands[b]:12}   {ctx_cost[b] / total:6.1%}")
-    print(f"\ncache writes: 5-minute TTL {ttl['5m']:,} tok | 1-hour TTL {ttl['1h']:,} tok")
-    print(f"re-writes of a 50k+ context after a pause > 5 min: {cold[0]} calls = {cold[1] / total:.1%} of cost")
+        print('  {0:10} {1:12}   {2:6.1%}'.format(b, ctx_bands[b], ctx_cost[b] / total))
+    print('\ncache writes: 5-minute TTL {0:,} tok | 1-hour TTL {1:,} tok'.format(ttl['5m'], ttl['1h']))
+    print('re-writes of a 50k+ context after a pause > 5 min: {0} calls = {1:.1%} of cost'.format(cold[0], cold[1] / total))
     sess_cost.sort(reverse=True)
-    print(f"top 5 sessions = {sum(c for c, _ in sess_cost[:5]) / total:.1%} of cost")
+    print('top 5 sessions = {0:.1%} of cost'.format(sum((c for c, _ in sess_cost[:5])) / total))
     print("\nskills / slash commands invoked (runs, context when invoked):")
     for k, (n, ctxs) in sorted(invoked.items(), key=lambda kv: -kv[1][0])[:20]:
-        print(f"  {k:44} {n:3}  {', '.join(str(c // 1000) + 'k' for c in ctxs[:8])}")
+        print('  {0:44} {1:3}  {2}'.format(k, n, ', '.join((str(c // 1000) + 'k' for c in ctxs[:8]))))
     print("\nsubagent calls (type, model passed):", dict(agents.most_common(10)) or "none")

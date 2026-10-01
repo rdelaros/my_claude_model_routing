@@ -38,6 +38,9 @@ Verified against Claude Code 2.1.286; the hooks now use events and fields that e
 ### Tools
 - `before_after.py` and `session_report.py` count prompts with pasted content (including image-only ones) and slash commands, ignore compaction summaries (and count them), price 1-hour cache writes at their list ratio using the authoritative total, count each tool call once even when its record is repeated, and no longer crash on string-content assistant records or malformed timestamps; `before_after.py` counts foreground agent results as reports and ignores background-launch acknowledgements.
 
+### Portability
+- Every hook and script runs on any Python 3 from 3.5: no f-strings or other 3.6+ syntax, no `datetime.fromisoformat` or `subprocess.run(capture_output=...)`; a test enforces it and CI runs 3.7 to 3.13.
+
 ### Tests
 - `tests/test_hooks.py` runs every hook as a subprocess against a temporary config directory (with `MODEL_ROUTER_DEBUG=1`, so a crash fails instead of passing silently), `tests/test_setup.py` runs the setup script against a fake `claude`, and `tests/test_tools.py` runs the measurement scripts on a synthetic transcript; a GitHub Actions workflow runs them on Linux and Windows.
 

@@ -61,7 +61,7 @@ class SetupCase(unittest.TestCase):
         self.tmp.cleanup()
 
     def run_script(self, *args, env=None, cwd=None):
-        proc = subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True, env={**self.env, **(env or {})}, cwd=cwd or self.tmp.name, timeout=120)
+        proc = subprocess.run([sys.executable, str(SCRIPT), *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, env={**self.env, **(env or {})}, cwd=cwd or self.tmp.name, timeout=120)
         return proc.returncode, proc.stdout, proc.stderr
 
     def settings(self):
@@ -222,7 +222,7 @@ class SetupCase(unittest.TestCase):
         for value, state in (("off", "off"), ("OFF", "off"), ("0", "off"), ("no", "off"), ("on", "on"), ("TRUE", "on"), ("1", "on")):
             (self.cfg / "settings.json").write_text(json.dumps({"env": {"CLAUDE_CODE_FORK_SUBAGENT": value}}))
             out = self.run_script("show")[1]
-            self.assertIn(f"fork gate  : {state}  (CLAUDE_CODE_FORK_SUBAGENT={value}", out)
+            self.assertIn('fork gate  : {0}  (CLAUDE_CODE_FORK_SUBAGENT={1}'.format(state, value), out)
             self.assertNotIn("not a recognised boolean", out)
         (self.cfg / "settings.json").write_text(json.dumps({"env": {"CLAUDE_CODE_FORK_SUBAGENT": "maybe"}}))
         out = self.run_script("show")[1]
