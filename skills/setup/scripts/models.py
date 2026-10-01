@@ -19,14 +19,24 @@ code is 0 iff every tier's current alias answered OK -- the extra probes never c
 
 Settings precedence, lowest to highest, as Claude Code merges the `env` blocks: user settings
 (<config dir>/settings.json), <cwd>/.claude/settings.json, <cwd>/.claude/settings.local.json,
-managed settings; the process environment wins over all of them. A --settings file or JSON given
-on the command line is not visible from here. `map`, `unmap` and `forks` write the user file only.
+managed settings (managed-settings.json, then managed-settings.d/*.json). Claude Code applies
+each layer's env block over the launch environment, so a settings file beats the shell for the
+variables handled here; the shell only counts when no settings file sets the variable. A
+--settings file or JSON given on the command line sits between the local and the managed layer
+and is not visible from here. `map`, `unmap` and `forks` write the user file only.
+
+Inside a running session (the Bash tool sets CLAUDECODE=1) the settings env is already exported
+into the process: `check` scrubs those variables from the child's environment so `claude -p`
+re-reads the settings files, and `show`/`doctor` call an exported value that no settings file
+sets any more stale.
 
 Forks: in Claude Code 2.1.28x every Agent launch is asynchronous while the fork feature is on
 (the Agent tool has no run_in_background parameter) and its own prompt tells the model to "fork
-yourself" while this plugin's hook denies forks. CLAUDE_CODE_FORK_SUBAGENT=false restores
-foreground launches (operators keep running in the background: their definitions say
-background: true) and removes the fork agent type.
+yourself" while this plugin's hook denies forks. `forks off` (CLAUDE_CODE_FORK_SUBAGENT=false)
+removes the fork agent type (so there is nothing to deny) and puts the run_in_background
+parameter back on the Agent tool; launches still run in the background by default, and the
+routing rules then tell the main session to pass run_in_background: false for builders and the
+coordinator (operators keep background: true regardless).
 """
 import datetime
 import json
@@ -42,6 +52,7 @@ ALIASES = ("haiku", "sonnet", "opus", "fable")  # what the Agent tool's `model` 
 TIERS = {"builder": "sonnet", "operator": "haiku", "senior_operator": "sonnet"}
 ALIAS_ENV = {a: f"ANTHROPIC_DEFAULT_{a.upper()}_MODEL" for a in ALIASES}
 FORK_VAR, SUBAGENT_VAR, FORCE_VAR = "CLAUDE_CODE_FORK_SUBAGENT", "CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL_FORCE"
+STALE_SOURCE = "exported by the running session (stale; restart to clear)"
 CHECK_TIMEOUT = 120  # per model; the pool runs CHECK_WORKERS at a time
 CHECK_WORKERS = 4
 PROBE_BUDGET_USD = "0.25"
@@ -85,13 +96,22 @@ def invalid_tiers():
 
 # --- settings files, merged the way Claude Code merges them ---------------------------------
 
-def managed_settings_paths():
+def managed_settings_base():
     if sys.platform == "darwin":
-        return [Path("/Library/Application Support/ClaudeCode/managed-settings.json")]
+        return Path("/Library/Application Support/ClaudeCode")
     if sys.platform.startswith("win"):
-        return [Path(os.environ.get("ProgramData") or r"C:\ProgramData") / "ClaudeCode" / "managed-settings.json"]
-    base = Path("/etc/claude-code")
-    return [base / "managed-settings.json"] + sorted((base / "managed-settings.d").glob("*.json"))
+        return Path(r"C:\Program Files\ClaudeCode")  # hardcoded in Claude Code; it does not consult %ProgramFiles%
+    return Path("/etc/claude-code")
+
+
+def managed_settings_paths():
+    """managed-settings.json, then the managed-settings.d/*.json drop-ins (regular files, by name) -- on every platform."""
+    base = managed_settings_base()
+    try:
+        drop_ins = sorted(e.name for e in os.scandir(base / "managed-settings.d") if e.name.endswith(".json") and not e.name.startswith(".") and e.is_file())
+    except OSError:
+        drop_ins = []
+    return [base / "managed-settings.json"] + [base / "managed-settings.d" / name for name in drop_ins]
 
 
 def settings_files():
@@ -118,15 +138,46 @@ def env_layers():
     return [(label, path, data["env"]) for label, path, data in settings_layers() if isinstance(data.get("env"), dict)]
 
 
-def env_setting(name):
-    """(value, source) of an environment variable as Claude Code sees it: the process environment, else the highest settings file."""
-    if os.environ.get(name):
-        return os.environ[name], "shell environment"
+def settings_env(name):
+    """(value, source) of `name` from the highest settings file whose env block sets it, else (None, None)."""
     for label, path, env in reversed(env_layers()):
         if env.get(name) not in (None, ""):
             value = env[name]
             return (json.dumps(value) if isinstance(value, bool) else str(value)), f"{label} {path}"
     return None, None
+
+
+def session_var(name):
+    """True for the variables a running session has already exported from its settings (and `check` scrubs)."""
+    return (name.startswith("ANTHROPIC_DEFAULT_") and name.endswith("_MODEL")) or name in (FORK_VAR, SUBAGENT_VAR, FORCE_VAR)
+
+
+def in_session():
+    return bool(os.environ.get("CLAUDECODE"))
+
+
+def shell_source(name):
+    return STALE_SOURCE if in_session() and session_var(name) else "shell environment"
+
+
+def env_setting(name):
+    """(value, source) of an environment variable as Claude Code sees it: the highest settings file that sets it (Claude Code
+    applies the settings env over the launch environment), else the shell."""
+    value, src = settings_env(name)
+    if value is not None:
+        return value, src
+    if os.environ.get(name):
+        return os.environ[name], shell_source(name)
+    return None, None
+
+
+def shell_override_note(name):
+    """A line when the launch environment also carries `name` but a settings file overrides it; None otherwise."""
+    shell = os.environ.get(name)
+    value, src = settings_env(name)
+    if not shell or value is None or (in_session() and shell == value):  # a session exports the files' own value: not an override
+        return None
+    return f"{name}={shell} ({shell_source(name)}) is overridden by {name}={value} in the {src}: Claude Code applies the settings env over the launch environment."
 
 
 def effective_env(name):
@@ -142,12 +193,9 @@ def top_setting(key):
 
 
 def higher_env_sources(name, above="user settings"):
-    """Sources above `above` that also set `name` (they win over what `map`/`forks` write)."""
+    """Settings layers above `above` that also set `name` (they win over what `map`/`forks` write); never the shell, which loses to every file."""
     labels = [label for label, _ in settings_files()]
-    out = [f"{label} {path}" for label, path, env in env_layers() if labels.index(label) > labels.index(above) and env.get(name) not in (None, "")]
-    if os.environ.get(name):
-        out.append("shell environment")
-    return out
+    return [f"{label} {path}" for label, path, env in env_layers() if labels.index(label) > labels.index(above) and env.get(name) not in (None, "")]
 
 
 def provider():
@@ -171,12 +219,17 @@ def main_model_line():
 
 
 def fork_gate():
-    """(state, detail): the fork feature is off when CLAUDE_CODE_FORK_SUBAGENT is false/0."""
+    """(state, detail): the fork feature is off when CLAUDE_CODE_FORK_SUBAGENT parses as false, the way Claude Code parses booleans."""
     value, src = env_setting(FORK_VAR)
     if value is None:
-        return "on", "Claude Code default: Agent launches are asynchronous and the fork agent type exists; `forks off` restores foreground launches"
-    off = value.strip().lower() in ("false", "0", "no")
-    return ("off" if off else "on"), f"{FORK_VAR}={value} ({src})"
+        return "on", ("Claude Code default: Agent launches are asynchronous and the fork agent type exists; `forks off` removes that type "
+                      "and puts run_in_background back on the Agent tool")
+    word = value.strip().lower()
+    if word in ("0", "false", "no", "off"):
+        return "off", f"{FORK_VAR}={value} ({src}): no fork agent type; the Agent tool has run_in_background again, launches still default to the background"
+    if word in ("1", "true", "yes", "on"):
+        return "on", f"{FORK_VAR}={value} ({src})"
+    return "on", f"{FORK_VAR}={value} ({src}) is not a recognised boolean; Claude Code ignores it (default on)"
 
 
 def subagent_model_lines():
@@ -216,8 +269,11 @@ def cmd_show(_args):
     lines, _ = subagent_model_lines()
     for line in lines:
         print(line)
-    if any(src != "shell environment" for _, src in mapped.values()) or any("settings" in (env_setting(v)[1] or "") for v in (FORK_VAR, SUBAGENT_VAR, FORCE_VAR)):
-        print("note       : a --settings file or JSON passed on the command line would override these files and is not visible here.")
+    watched = list(ALIAS_ENV.values()) + [FORK_VAR, SUBAGENT_VAR, FORCE_VAR]
+    for note in filter(None, map(shell_override_note, watched)):
+        print(f"note       : {note}")
+    if any("settings" in (env_setting(v)[1] or "") for v in watched):
+        print("note       : a --settings file or JSON passed on the command line overrides the user, project and local files (not managed settings) and is not visible here.")
     return 0
 
 
@@ -255,11 +311,17 @@ def check_one(model):
     argv = [shutil.which("claude") or "claude", "-p", "Reply with the single word OK.", "--model", model, "--output-format", "json", "--max-turns", "1",
             "--tools", "", "--system-prompt", "Answer with exactly what is asked.", "--no-session-persistence", "--strict-mcp-config",
             "--max-budget-usd", PROBE_BUDGET_USD]
+    env = dict(os.environ)
+    if env.get("CLAUDECODE"):  # the session exported its settings env; drop it so the child applies the settings files itself
+        for key in [k for k in env if session_var(k)]:
+            del env[key]
     started = time.time()
     try:
-        proc = subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=CHECK_TIMEOUT)
+        proc = subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=CHECK_TIMEOUT, env=env)
     except FileNotFoundError:
         return {"model": model, "status": "FAIL", "detail": "`claude` not found on PATH"}
+    except OSError as exc:
+        return {"model": model, "status": "FAIL", "detail": f"could not run claude: {exc}"[:200]}
     except subprocess.TimeoutExpired:
         return {"model": model, "status": "FAIL", "detail": f"no answer within {CHECK_TIMEOUT}s"}
     seconds = time.time() - started
@@ -446,6 +508,9 @@ def write_settings_env(key, value):
         print(f"{key} {'removed from' if value is None else '= ' + value + ' in'} {path}\nTakes effect in sessions started from now on.")
     for src in others:
         print(f"NOTE: {key} is also set in the {src}, which overrides {path}.")
+    note = shell_override_note(key)
+    if note:
+        print(f"NOTE: {note}")
     return 0
 
 
@@ -461,7 +526,10 @@ def cmd_map(args):
         print("usage: models.py map <alias>=<model-id>", file=sys.stderr)
         return 2
     alias, _, value = args[0].partition("=")
-    return write_alias_map(alias, value.strip() or None)
+    if not value.strip():
+        print(f"usage: models.py map <alias>=<model-id> -- the value is empty; `unmap {alias}` removes a mapping", file=sys.stderr)
+        return 2
+    return write_alias_map(alias, value.strip())
 
 
 def cmd_unmap(args):
@@ -477,7 +545,9 @@ def cmd_forks(args):
         return 2
     code = write_settings_env(FORK_VAR, "false" if args == ["off"] else None)
     if code == 0:
-        print("Fork feature off: Agent launches run in the foreground again (operators still go to the background) and there is no fork agent type."
+        print("Fork feature off: no fork agent type (nothing left to deny) and the Agent tool has its run_in_background parameter back. "
+              "Launches still run in the background by default; the routing rules tell the main session to pass run_in_background: false "
+              "for builders and the coordinator (operators keep background: true)."
               if args == ["off"] else "Fork feature back to Claude Code's default: every Agent launch is asynchronous and the fork agent type exists.")
     return code
 
@@ -506,7 +576,19 @@ def claude_version():
         return exe, f"could not run --version: {exc}"
 
 
+def plugin_enabled():
+    """(key, value, source) of the highest settings file's enabledPlugins entry for model-router@<marketplace>, else (None, None, None)."""
+    found = (None, None, None)
+    for label, path, data in settings_layers():
+        plugins = data.get("enabledPlugins")
+        for key, value in (plugins.items() if isinstance(plugins, dict) else ()):
+            if key.startswith("model-router@"):
+                found = (key, value, f"{label} {path}")
+    return found
+
+
 def cmd_doctor(_args):
+    """Read-only self-check. It reads the settings files on disk, so it cannot see a --settings file/JSON or a policy layer passed on the command line."""
     problems = []
     root = plugin_root()
     print(f"config dir     : {config_dir()}")
@@ -558,6 +640,19 @@ def cmd_doctor(_args):
     print(f"subagent model : {SUBAGENT_VAR}={effective_env(SUBAGENT_VAR) or '(unset)'}, {FORCE_VAR}={effective_env(FORCE_VAR) or '(unset)'}")
     for line in lines:
         print(line)
+    for note in filter(None, map(shell_override_note, list(ALIAS_ENV.values()) + [FORK_VAR, SUBAGENT_VAR, FORCE_VAR])):
+        print(f"note           : {note}")
+    key, enabled, src = plugin_enabled()
+    if key:
+        print(f"plugin enabled : {key} = {json.dumps(enabled)} ({src})")
+        if not enabled:
+            problems.append(f"{key} is disabled in {src}; its hooks do not run")
+    else:
+        from_cache = "/plugins/cache/" in str(root) or "\\plugins\\cache\\" in str(root)
+        print(f"plugin enabled : no enabledPlugins entry for model-router@<marketplace> in the settings files"
+              + (" -- the plugin root is a marketplace install, so it should have one" if from_cache else " (expected for a --plugin-dir checkout)"))
+        if from_cache:
+            problems.append("no enabledPlugins entry for model-router@<marketplace> although it is installed from a marketplace; run `/plugin` and enable it")
     if forced:
         problems.append(f"{FORCE_VAR} is set; every subagent runs on that model and tier routing has no effect")
     exe, version = claude_version()

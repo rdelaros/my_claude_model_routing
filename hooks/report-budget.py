@@ -15,7 +15,7 @@ Saved reports can hold anything a command printed — tokens, connection strings
 values — so the folder and the files are created readable by the owner only, and they are
 deleted after 14 days.
 
-Local-only and fail-open: any error exits 0 with no output, so a broken hook never holds
+Local-only and fail-open: any error exits 0 with no output (MODEL_ROUTER_DEBUG=1 re-raises it), so a broken hook never holds
 a subagent back. It asks once per stop — a second long answer is let through.
 
 Tunables (environment):
@@ -122,5 +122,6 @@ if __name__ == "__main__":
     try:
         main()
     except Exception:
-        pass
+        if os.environ.get("MODEL_ROUTER_DEBUG"):
+            raise
     sys.exit(0)

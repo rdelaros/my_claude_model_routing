@@ -43,7 +43,7 @@ Run the report on every config directory. Use `tools/session_report.py` from the
 python3 tools/session_report.py ~/.claude [other config dirs]
 ```
 
-It prints, per config: models used; prompts, turns and cost share by work type (answers / file edits / commands and MCP calls); cost share by context size per call; cache-write TTL types and how much cost is whole-context re-writes after a pause; how concentrated cost is in a few sessions; every skill and slash command invoked, with the context size at the moment it was invoked; and subagent calls with the model passed.
+It prints, per config: models used; the number of prompts and of compactions; prompts, turns and cost share by work type (answers / file edits / commands and MCP calls); cost share by context size per call; cache-write TTL types and how much cost is whole-context re-writes after a pause; how concentrated cost is in a few sessions; every skill and slash command invoked, with the context size at the moment it was invoked; and subagent calls with the model passed.
 
 Cost units are relative, at list-price ratios (cache read 0.1, 5-minute cache write 1.25, 1-hour cache write 2.0, input 1, output 5). Compare shares, not absolute values.
 
@@ -168,7 +168,7 @@ So you know what to look for — not to be assumed here.
 - 45 skills were installed; 5 were ever used. Moving 33 to `skills-disabled/` cut the descriptions loaded per session from 15,700 to 4,000 characters.
 - None of the user's eight agents had a `model:` line.
 - A plugin installed mid-session did nothing until the next session, because its rules were injected only at session start. The plugin now covers that case.
-- Context injected by a hook is capped at 8,000 characters (and 200 lines) per hook command in Claude Code 2.1.286 (it was 4,000 in earlier versions); split what you inject across commands when it is more, and never let the last line be the one that gets cut.
+- Context injected by a hook is capped at 8,000 characters (and 200 lines) per hook command in Claude Code 2.1.286 (earlier plugin versions assumed 4,000); split what you inject across commands when it is more, and never let the last line be the one that gets cut.
 
 ## Appendix — `session_report.py`
 
@@ -181,9 +181,10 @@ Read-only. Save as `session_report.py` if the plugin folder is not on this machi
 usage: python3 session_report.py [CONFIG_DIR ...]      (default: ~/.claude)
 
 Cost units are relative, at list-price ratios: input 1, cache read 0.1, 5-minute cache write
-1.25, 1-hour cache write 2.0, output 5 (an old transcript without the write breakdown is priced
-as 5-minute writes). A prompt is a user record the person typed, as text or text with pasted
-images/files; tool results, hook context and compaction summaries are not prompts.
+1.25, 1-hour cache write 2.0, output 5 (cache_creation_input_tokens is the total written and the
+1-hour share comes from the cache_creation breakdown, so an old transcript without that breakdown
+is priced as 5-minute writes). A prompt is a user record the person typed (text, pasted
+images/files, or a slash command); tool results, hook context and compaction summaries are not prompts.
 """
 import collections, glob, json, os, re, sys
 from datetime import datetime
@@ -195,11 +196,11 @@ BUILTIN = set("plugin reload-plugins clear compact model resume config mcp login
 
 
 def writes(u):
-    """(5-minute, 1-hour) cache-write tokens of one call."""
-    cc = u.get("cache_creation") or {}
-    if "ephemeral_5m_input_tokens" in cc or "ephemeral_1h_input_tokens" in cc:
-        return cc.get("ephemeral_5m_input_tokens") or 0, cc.get("ephemeral_1h_input_tokens") or 0
-    return u.get("cache_creation_input_tokens") or 0, 0
+    """(5-minute, 1-hour) cache-write tokens of one call. cache_creation_input_tokens is the total; the
+    1-hour figure of the cache_creation breakdown is a part of it, capped at the total (as Claude Code prices it)."""
+    total = u.get("cache_creation_input_tokens") or 0
+    one_hour = min((u.get("cache_creation") or {}).get("ephemeral_1h_input_tokens") or 0, total)
+    return total - one_hour, one_hour
 
 
 def cost(u):
@@ -215,12 +216,15 @@ def when(r):
 
 
 def text_of(c):
-    """Text the person typed: a string, or the text blocks of a list without tool results. Else None."""
+    """Text the person typed: a string, or the text blocks of a list without tool results; "[pasted image]"
+    for a list of image/document blocks with no text (a pasted image or file sent alone). Else None."""
     if isinstance(c, list):
         blocks = [b for b in c if isinstance(b, dict)]
-        if any(b.get("type") == "tool_result" for b in blocks) or not any(b.get("type") == "text" for b in blocks):
+        if any(b.get("type") == "tool_result" for b in blocks):
             return None
         c = "\n".join(str(b.get("text") or "") for b in blocks if b.get("type") == "text")
+        if not c.strip() and any(b.get("type") in ("image", "document") for b in blocks):
+            return "[pasted image]"
     return c if isinstance(c, str) else None
 
 
@@ -248,7 +252,7 @@ for cfg in dirs:
     invoked = collections.defaultdict(lambda: [0, []])           # skill/command -> runs, context at start
     agents = collections.Counter(); sess_cost = []; opened = []; compactions = 0
     for path in files:
-        cur = None; prev_call = None; ctx = 0; seen = set(); scost = 0.0
+        cur = None; prev_call = None; ctx = 0; seen = set(); seen_tools = set(); scost = 0.0
         for line in open(path, encoding="utf-8", errors="replace"):
             try:
                 r = json.loads(line)
@@ -271,6 +275,10 @@ for cfg in dirs:
                 for b in (c if isinstance(c, list) else []):
                     if not isinstance(b, dict) or b.get("type") != "tool_use":
                         continue
+                    tid = b.get("id")                 # a streamed message is written once per block, under one message id
+                    if tid and tid in seen_tools:
+                        continue
+                    seen_tools.add(tid)
                     n = str(b.get("name") or ""); i = b.get("input") if isinstance(b.get("input"), dict) else {}
                     if cur is not None:
                         if n in ("Edit", "Write", "NotebookEdit", "MultiEdit"): cur["edits"] += 1

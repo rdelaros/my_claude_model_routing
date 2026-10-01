@@ -7,7 +7,7 @@ the next prompt, once per session. Run once per part (`rules`, `corrections`), l
 session-start.py, because each hook's additionalContext has its own 8,000-character cap.
 
 Local-only and fail-open: any error exits 0 with no output so a broken hook never
-blocks a prompt.
+blocks a prompt (MODEL_ROUTER_DEBUG=1 re-raises it).
 """
 import json
 import os
@@ -34,10 +34,12 @@ def transcript_has(path, part):
                 return True  # cannot tell; assume injected rather than inject twice
             if not isinstance(d, dict):
                 continue
-            if d.get("type") == "hook_additional_context" or d.get("message", {}).get("type") == "hook_additional_context":
-                return True
-            if d.get("type") not in ("user", "assistant"):
-                return True  # some other record shape that carries the context
+            att = d.get("attachment")
+            if isinstance(att, dict) and att.get("type") == "hook_additional_context":
+                return True  # 2.1.x persists hook context as {type: "attachment", attachment: {type: "hook_additional_context", ...}}
+            if d.get("type") == "hook_additional_context" or (d.get("message") or {}).get("type") == "hook_additional_context":
+                return True  # other shapes
+            # any other record (a tool result, a summary) merely quotes the strings
     return False
 
 
@@ -73,5 +75,6 @@ if __name__ == "__main__":
     try:
         main()
     except Exception:
-        pass
+        if os.environ.get("MODEL_ROUTER_DEBUG"):
+            raise
     sys.exit(0)

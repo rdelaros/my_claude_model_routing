@@ -131,5 +131,6 @@ if __name__ == "__main__":
     try:
         main()
     except Exception:
-        pass
+        if os.environ.get("MODEL_ROUTER_DEBUG"):
+            raise
     sys.exit(0)

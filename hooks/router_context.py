@@ -98,7 +98,10 @@ def fit(text, budget):
     """Cut `text` at a line boundary so that it, plus the note, fits in `budget` characters."""
     if len(text) <= budget:
         return text
-    cut = text.rfind("\n", 0, max(0, budget - len(TRUNCATED_NOTE) - 1))
+    limit = max(0, budget - len(TRUNCATED_NOTE) - 1)
+    cut = text.rfind("\n", 0, limit)
+    if cut < 0:
+        cut = limit  # no earlier line boundary: cut mid-line rather than keep the whole line
     return text[:cut].rstrip() + "\n" + TRUNCATED_NOTE
 
 

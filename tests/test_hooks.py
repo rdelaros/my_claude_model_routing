@@ -37,6 +37,7 @@ class HookCase(unittest.TestCase):
         for var in list(self.env):
             if var.startswith("MODEL_ROUTER_") or var.startswith("CLAUDE_CODE_SUBAGENT_MODEL"):
                 del self.env[var]
+        self.env["MODEL_ROUTER_DEBUG"] = "1"  # a crashing hook must fail the test, not pass as a silent no-op
         os.environ["CLAUDE_CONFIG_DIR"] = str(self.cfg)
         os.environ["CLAUDE_PLUGIN_ROOT"] = str(ROOT)
 
@@ -53,9 +54,9 @@ class HookCase(unittest.TestCase):
         self.assertEqual(proc.stderr, "", proc.stderr)
         return json.loads(proc.stdout) if proc.stdout.strip() else None
 
-    def write_transcript(self, records):
+    def write_transcript(self, records, ensure_ascii=True):
         path = Path(self.tmp.name) / "transcript.jsonl"
-        path.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
+        path.write_text("".join(json.dumps(r, ensure_ascii=ensure_ascii) + "\n" for r in records), encoding="utf-8")
         return str(path)
 
 
@@ -90,6 +91,15 @@ class RulesContext(HookCase):
         self.assertIn(router_context.TRUNCATED_NOTE, text)
         self.assertTrue(text.endswith("routing-feedback.md`"))
         self.assertRegex(text, r"- rule \d+ x+\n\(rules truncated", "cut must fall on a line boundary")
+
+    def test_a_single_over_long_line_is_cut_too(self):
+        fake = Path(self.tmp.name) / "plugin"
+        (fake / "rules").mkdir(parents=True)
+        (fake / "rules" / "routing.md").write_text("## Model routing " + "y" * 9000)
+        text = self.run_hook("session-start.py", {"session_id": "s1"}, "rules", plugin_root=fake)["hookSpecificOutput"]["additionalContext"]
+        self.assertLessEqual(len(text), router_context.MAX_CONTEXT_CHARS)
+        self.assertIn(router_context.TRUNCATED_NOTE, text)
+        self.assertTrue(text.endswith("routing-feedback.md`"))
 
     def test_session_start_creates_marker_and_feedback_file_with_header(self):
         self.run_hook("session-start.py", {"session_id": "abc/../x"}, "rules")
@@ -148,8 +158,31 @@ class EnsureRules(HookCase):
         self.assertIsNone(self.run_hook("ensure-rules.py", payload, "rules"))
 
     def test_skips_when_a_hook_record_already_carries_the_rules(self):
-        transcript = self.write_transcript([{"type": "hook_additional_context", "content": ["## Model routing\n..."], "hookName": "SessionStart:startup"}])
+        persisted = {"type": "attachment", "isSidechain": False, "attachment": {"type": "hook_additional_context", "content": ["## Model routing\n..."], "hookName": "SessionStart", "hookEvent": "SessionStart"}}
+        transcript = self.write_transcript([persisted])
         self.assertIsNone(self.run_hook("ensure-rules.py", {"session_id": "s1", "transcript_path": transcript}, "rules"))
+        transcript = self.write_transcript([{"type": "hook_additional_context", "content": ["## Model routing\n..."], "hookName": "SessionStart:startup"}])
+        self.assertIsNone(self.run_hook("ensure-rules.py", {"session_id": "s3", "transcript_path": transcript}, "rules"))
+
+    def test_corrections_part_and_the_session_start_marker(self):
+        (self.cfg / "model-router").mkdir()
+        (self.cfg / "model-router" / "routing-feedback.md").write_text(router_context.FEEDBACK_HEADER + "| d | s | a | b | c |\n")
+        payload = {"session_id": "s7", "transcript_path": self.write_transcript([])}
+        out = self.run_hook("ensure-rules.py", payload, "corrections")
+        self.assertIn("| d | s | a | b | c |", out["hookSpecificOutput"]["additionalContext"])
+        self.assertIsNone(self.run_hook("ensure-rules.py", payload, "corrections"))
+        self.run_hook("session-start.py", {"session_id": "s8"}, "rules")
+        self.assertIsNone(self.run_hook("ensure-rules.py", {"session_id": "s8", "transcript_path": self.write_transcript([])}, "rules"), "SessionStart already injected the rules for s8")
+
+    def test_old_session_markers_are_pruned(self):
+        folder = self.cfg / "model-router" / "sessions"
+        folder.mkdir(parents=True)
+        old = folder / "ancient"
+        old.touch()
+        os.utime(old, (time.time() - 20 * 86400, time.time() - 20 * 86400))
+        self.run_hook("ensure-rules.py", {"session_id": "fresh", "transcript_path": self.write_transcript([])}, "rules")
+        self.assertFalse(old.exists())
+        self.assertTrue((folder / "fresh").exists())
 
     def test_a_tool_result_quoting_the_source_does_not_count(self):
         quoted = 'needle = "## Model routing"; record = b"hook_additional_context"'
@@ -207,13 +240,15 @@ class ContextWatch(HookCase):
                 out.append({"type": "user", "isCompactSummary": True, "message": {"role": "user", "content": "This session is being continued from a previous conversation..."}})
         return out
 
-    def watch(self, records, prompt="next", env=None):
-        return self.run_hook("context-watch.py", {"session_id": "s", "transcript_path": self.write_transcript(records), "prompt": prompt}, env=env)
+    def watch(self, records, prompt="next", env=None, ensure_ascii=True):
+        env = {"MODEL_ROUTER_CACHE_TTL": "100000", **(env or {})}  # the growth branch, never the expiry branch, unless a test says so
+        return self.run_hook("context-watch.py", {"session_id": "s", "transcript_path": self.write_transcript(records, ensure_ascii), "prompt": prompt}, env=env)
 
     def test_warns_when_the_threshold_is_first_passed(self):
         out = self.watch(self.records(("p", "one"), ("a", 100000), ("p", "two"), ("a", 155000)))
         self.assertIn("155k tokens", out["systemMessage"])
-        self.assertIn("/compact", out["systemMessage"])
+        self.assertIn("every tool call is billed", out["systemMessage"])
+        self.assertNotIn("expired", out["systemMessage"])
 
     def test_does_not_warn_twice_for_the_same_size(self):
         base = self.records(("p", "one"), ("a", 100000), ("p", "two"), ("a", 155000))
@@ -224,6 +259,7 @@ class ContextWatch(HookCase):
     def test_warns_again_after_a_step_of_growth(self):
         out = self.watch(self.records(("p", "one"), ("a", 155000), ("p", "two"), ("a", 210000)))
         self.assertIn("210k", out["systemMessage"])
+        self.assertIn("every tool call is billed", out["systemMessage"])
 
     def test_silent_after_compaction(self):
         self.assertIsNone(self.watch(self.records(("p", "one"), ("a", 140000), ("p", "two"), ("a", 190000), ("c",))))
@@ -231,13 +267,24 @@ class ContextWatch(HookCase):
     def test_expired_cache_message(self):
         recs = self.records(("p", "one"), ("a", 200000))
         recs[-1]["timestamp"] = iso(3600)
-        out = self.watch(recs)
+        out = self.watch(recs, env={"MODEL_ROUTER_CACHE_TTL": "1"})
         self.assertIn("expired", out["systemMessage"])
+        self.assertIn("200k", out["systemMessage"])
+        recs = self.records(("p", "one"), ("a", 200000), ("p", "two"), ("a", 200000))  # the size was already seen: no growth warning
+        recs[-1]["message"]["usage"]["cache_creation"] = {"ephemeral_1h_input_tokens": 50}
+        recs[-1]["timestamp"] = iso(3000)
+        self.assertIsNone(self.watch(recs, env={"MODEL_ROUTER_CACHE_TTL": ""}), "a 50-minute-old call is within a detected 1-hour cache")
+        self.assertIn("expired", self.watch(recs, env={"MODEL_ROUTER_CACHE_TTL": "600"})["systemMessage"], "an explicit TTL wins over the detected one")
+        self.assertIn("160k", self.watch(self.records(("p", "one"), ("a", 100000), ("p", "x"), ("a", 160000)), env={"MODEL_ROUTER_COMPACT_TOKENS": "160000"})["systemMessage"])
+        self.assertIsNone(self.watch(self.records(("p", "one"), ("a", 100000), ("p", "x"), ("a", 160000)), env={"MODEL_ROUTER_COMPACT_TOKENS": "170000"}))
         self.assertIsNone(self.watch(recs, env={"MODEL_ROUTER_CONTEXT_WATCH": "0"}))
 
     def test_line_separator_inside_a_record_does_not_break_parsing(self):
-        recs = self.records(("p", "one two"), ("a", 100000), ("p", "x"), ("a", 160000))
-        self.assertIn("160k", self.watch(recs)["systemMessage"])
+        recs = self.records(("p", "one"), ("a", 100000), ("p", "x"), ("a", 160000))
+        recs[-1]["message"]["content"] = [{"type": "text", "text": "line one\u2028line two\u2029three\u0085four"}]
+        raw = self.write_transcript(recs, ensure_ascii=False)
+        self.assertIn("\u2028", Path(raw).read_text(encoding="utf-8"), "the transcript must hold the literal separator")
+        self.assertIn("160k", self.watch(recs, ensure_ascii=False)["systemMessage"], "the 160k record holds the separators and must still be parsed")
 
 
 class OpsNudge(HookCase):
@@ -264,7 +311,10 @@ class OpsNudge(HookCase):
         self.run_hook("ops-nudge.py", {"session_id": "s1"}, "reset")
         self.assertIsNone(self.batch([OPS_CALL]))
         self.assertIsNone(self.batch([OPS_CALL] * 5, agent_id="agent-1"))
-        self.assertIsNone(self.batch([OPS_CALL] * 5, session="s2") if False else None)
+        out = self.batch([OPS_CALL] * 5, session="s2")
+        self.assertIn("5 command/MCP calls", out["hookSpecificOutput"]["additionalContext"], "s2 starts its own counter at 0")
+        self.assertIsNone(self.batch([OPS_CALL]), "s1 is still at 2 after the reset")
+        self.assertTrue((self.cfg / "model-router" / "sessions" / "s2.ops").is_file())
 
     def test_disabled_by_env(self):
         self.assertIsNone(self.run_hook("ops-nudge.py", {"session_id": "s1", "tool_calls": [OPS_CALL] * 5}, "count", env={"MODEL_ROUTER_NUDGE_AT": "0"}))
@@ -296,6 +346,19 @@ class ReportBudget(HookCase):
         self.assertEqual(self.stop("REPORT FOR USER\n" + "x" * 20000)["decision"], "block")
         self.assertEqual(self.stop("Here it is\nREPORT FOR USER\n" + "x" * 5000)["decision"], "block")
 
+    def test_transcript_fallback_and_pruning(self):
+        transcript = self.write_transcript([{"type": "assistant", "message": {"content": [{"type": "text", "text": "z" * 6000}]}}, {"type": "user", "message": {"content": "x"}}])
+        out = self.run_hook("report-budget.py", {"agent_id": "a-2", "agent_type": "model-router:operator", "agent_transcript_path": transcript})
+        self.assertEqual(out["decision"], "block")
+        saved = Path(re.search(r"Full report: (\S+)", out["reason"]).group(1))
+        self.assertEqual(saved.read_text(), "z" * 6000)
+        stale = saved.parent / "stale-1.md"
+        stale.write_text("old")
+        os.utime(stale, (time.time() - 20 * 86400, time.time() - 20 * 86400))
+        self.stop("y" * 5000)
+        self.assertFalse(stale.exists(), "reports older than 14 days are deleted when a new one is saved")
+        self.assertTrue(saved.exists())
+
     def test_skips(self):
         self.assertIsNone(self.stop("x" * 5000, stop_hook_active=True))
         self.assertIsNone(self.run_hook("report-budget.py", {"agent_type": "my-agent", "last_assistant_message": "x" * 5000}, env={"MODEL_ROUTER_REPORT_EXEMPT": "my-agent"}))
@@ -314,9 +377,16 @@ class GuardWrites(HookCase):
 
     def test_denies_file_writes_from_operators(self):
         tmp = tempfile.gettempdir().replace("\\", "/")
-        for cmd in ("echo hi > out.txt", "cat <<EOF > notes.md", "ls | tee log.txt", "sed -i s/a/b/ f", "sed --in-place s/a/b/ f",
-                    "perl -pi -e s/a/b/ f", "git push origin main --force", "git push -f", "git checkout -- file", "git reset --hard HEAD~1",
-                    "git clean -fd", "git apply fix.patch", "cd repo && git restore .", "sudo sed -i s/a/b/ /etc/hosts", "patch -p1 < x",
+        for cmd in ("echo hi > out.txt", 'echo x > "out.txt"', "cat <<EOF > notes.md\nx\nEOF", "ls | tee log.txt", "sed -i s/a/b/ f", "sed --in-place s/a/b/ f",
+                    "perl -pi -e s/a/b/ f", "git push origin main --force", "git push -f", "git push -fu origin x", "git push +main", "git push --force-with-lease",
+                    "git checkout -- file", "git checkout HEAD -- f", "git checkout .", "git checkout -f main", "git reset --hard HEAD~1", "git switch -C x",
+                    "git clean -fd", "git apply fix.patch", "git -C /x apply p", "git -c k=v apply p", "cd repo && git restore .", "git rm f", "git mv a b", "git branch -D x",
+                    "sudo sed -i s/a/b/ /etc/hosts", "sudo -E sed -i s/a/b/ f", "patch -p1 < x", "truncate -s 0 f", "echo x | sudo tee f", "cat a | xargs -I{} tee {}",
+                    "nice sed -i s/a/b/ f", "time sed -i s/a/b/ f", "env X=1 sed -i s/a/b/ f", "X=1 sed -i s/a/b/ f", "command sed -i s/a/b/ f", "/usr/bin/sed -i s/a/b/ f",
+                    "gsed -i s/a/b/ f", "find . -exec sed -i s/a/b/ {} +", "if true; then sed -i s/a/b/ f; fi", "for f in *; do sed -i s/a/b/ $f; done", "{ sed -i s/a/b/ f; }",
+                    "echo `sed -i s/a/b/ f`", "cp a b", "mv a b", "rm -rf dir", "dd if=/dev/zero of=f", "install -m 644 a b", "rsync a b", "touch f", "mkdir d",
+                    "python3 -c \"open('f','w').write('x')\"", "node -e 'require(\"fs\").writeFileSync(\"f\",\"x\")'", "bash -c 'echo x > f'", "sh -c \"echo x > f\"",
+                    "eval 'echo x > f'", "curl -o f URL", "wget -O f URL", "tar xf a.tar", "unzip a.zip", "exec > file", "> file cat", "echo x > $TMPDIR/../x", "echo x | tee {}",
                     f"echo x > {tmp}/../other/file"):
             self.assertEqual(self.bash(cmd), "deny", cmd)
             self.assertEqual(self.bash(cmd, "model-router:senior-operator"), "deny", cmd)
@@ -324,10 +394,16 @@ class GuardWrites(HookCase):
 
     def test_allows_ordinary_operations(self):
         tmp = tempfile.gettempdir().replace("\\", "/")
-        for cmd in ("git status", "git checkout -b feature", "git push origin feature", "git commit -m 'fix > bug'", "cmd 2>&1 | tail -n 5",
-                    "kubectl get pods -o yaml > /dev/null", "sed -n '1,5p' file", "sed -e 's/a/b/' file", "terraform plan -out=plan.tfplan",
-                    "kubectl patch deploy x", "az webapp restart", f"gh pr diff 42 > {self.SCRATCH}/diff.patch", f"glab mr diff 7 >> {tmp}/mr.diff",
-                    "echo \"a > b\"", "awk '{print > \"x\"}' f", "git stash && git pull && git stash pop", "pytest -q 1>&2", "echo x > $TMPDIR/y"):
+        for cmd in ("git status", "git checkout -b feature", "git checkout main", "git push origin feature", "git commit -m 'fix > bug'", "cmd 2>&1 | tail -n 5",
+                    "kubectl get pods -o yaml > /dev/null", "kubectl get pods | grep -v Running >/dev/null; echo $?", "(cmd >/dev/null)", "cmd 2>/dev/null|wc -l",
+                    "cmd 2>/dev/null&&true", "ls > /dev/null 2>&1; echo done", "printf x > /dev/tty", "sed -n '1,5p' file", "sed -e 's/a/b/' file",
+                    "terraform plan -out=plan.tfplan", "kubectl patch deploy x", "az webapp restart", "git rebase main", "git merge x", "git tag v1", "git -C /x log --oneline",
+                    "git log --format='%h -> %s'", f"gh pr diff 42 > {self.SCRATCH}/diff.patch", f'gh pr diff 1 > "{self.SCRATCH}/pr 1.diff"', f"glab mr diff 7 >> {tmp}/mr.diff",
+                    f"echo x > '{tmp}/y'", 'echo x > "$TMPDIR/y"', "echo x > $TMPDIR/y", "echo x > ${TMPDIR}/z", f'ls | tee "{self.SCRATCH}/t.log"',
+                    f"echo ok | tee {self.SCRATCH}/a {tmp}/b", f"cp a.txt {tmp}/b.txt", f"rm {self.SCRATCH}/old.diff", f"mkdir -p {tmp}/work", f"curl -o {tmp}/x.json https://x",
+                    f"tar xf a.tar -C {tmp}/u", "echo \"a > b\"", "awk '{print > \"x\"}' f", "git stash && git pull && git stash pop", "pytest -q 1>&2", "bash -c 'ls -la'",
+                    "python3 -c \"print(open('f').read())\"", "python3 - <<'EOF'\nif a > b:\n    print(1)\nEOF", "psql -c x <<EOF\nselect * from t where a > 1;\nEOF",
+                    "cat <<EOF\n<p>html</p>\nEOF", "echo a -> b", "cat f | tee >(wc -l)"):
             self.assertIsNone(self.bash(cmd), cmd)
 
     def test_other_agents_and_the_main_session_are_untouched(self):
@@ -352,11 +428,26 @@ class Definitions(unittest.TestCase):
             self.assertIn(event, known)
             for group in groups:
                 for hook in group["hooks"]:
-                    for script in re.findall(r"/hooks/([\w-]+\.py)", hook["command"]):
+                    scripts = re.findall(r"/hooks/([\w-]+\.py)", hook["command"])
+                    self.assertTrue(scripts, hook["command"])
+                    for script in scripts:
                         self.assertTrue((HOOKS / script).is_file(), script)
                     self.assertIn("|| true", hook["command"])
         self.assertEqual(hooks["SessionStart"][0]["matcher"], "startup|resume|clear|compact|fork")
         self.assertIn("PostToolBatch", hooks)
+
+    @unittest.skipIf(os.name == "nt", "the hook commands are POSIX shell lines")
+    def test_hook_commands_run_as_written(self):
+        hooks = json.loads((HOOKS / "hooks.json").read_text(encoding="utf-8"))["hooks"]
+        with tempfile.TemporaryDirectory() as cfg:
+            env = {**os.environ, "CLAUDE_PLUGIN_ROOT": str(ROOT), "CLAUDE_CONFIG_DIR": cfg, "MODEL_ROUTER_DEBUG": "1"}
+            payload = json.dumps({"session_id": "cmd", "tool_name": "Bash", "tool_input": {"command": "ls"}, "tool_calls": [], "hook_event_name": "x"})
+            for groups in hooks.values():
+                for group in groups:
+                    for hook in group["hooks"]:
+                        proc = subprocess.run(hook["command"], shell=True, input=payload, capture_output=True, text=True, env=env, timeout=60)
+                        self.assertEqual(proc.returncode, 0, hook["command"])
+                        self.assertNotIn("Traceback", proc.stderr, hook["command"])
 
     def test_agent_frontmatter(self):
         ignored_for_plugin_agents = {"hooks", "permissionMode", "mcpServers"}
@@ -387,13 +478,22 @@ class Definitions(unittest.TestCase):
             self.assertIn("REPORT FOR USER", text)
             self.assertIn("timeout: 600000", text)
             self.assertNotIn("10-minute Bash limit", text)
+            self.assertIn("last line of your task is `CONFIRMED BY USER: <command> on <target>`", text)
+            self.assertIn("turns: every message of yours that calls tools is one turn", text)
 
     def test_rules_mention_what_the_hooks_expect(self):
         rules = (ROOT / "rules" / "routing.md").read_text(encoding="utf-8")
         self.assertTrue(rules.startswith(router_context.RULES_MARKER))
-        for needle in ("{builder_model}", "{operator_model}", "{senior_operator_model}", "CONFIRMED BY USER", "REPORT FOR USER", "Full report:", "| date | situation | routed to | should be | why |"):
+        for needle in ("{builder_model}", "{operator_model}", "{senior_operator_model}", "CONFIRMED BY USER: <command> on <target>", "REPORT FOR USER", "Full report:",
+                       "| date | situation | routed to | should be | why |", "run_in_background", "operators do not load CLAUDE.md"):
             self.assertIn(needle, rules)
         self.assertNotIn("Never write 3+ files here", rules)
+
+    def test_no_false_foreground_claim_survives(self):
+        for rel in ("README.md", "CHANGELOG.md", "skills/setup/SKILL.md", "skills/setup/scripts/models.py", "rules/routing.md"):
+            text = (ROOT / rel).read_text(encoding="utf-8").lower()
+            for phrase in ("restores foreground launches", "run in the foreground again", "returning their result directly"):
+                self.assertNotIn(phrase, text, rel)
 
     def test_playbook_appendix_matches_the_report_script(self):
         doc = (ROOT / "docs" / "optimize-a-machine.md").read_text(encoding="utf-8")

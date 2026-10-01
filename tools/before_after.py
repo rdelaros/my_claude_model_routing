@@ -5,14 +5,16 @@ usage: python3 before_after.py [CONFIG_DIR ...]      (default: ~/.claude)
 
 A session counts as "after" when a hook injected the routing rules into it. Costs are relative
 units at list-price ratios (input 1, cache read 0.1, 5-minute cache write 1.25, 1-hour cache
-write 2.0, output 5; an old transcript without the write breakdown is priced as 5-minute writes)
-on the main session only; subagent transcripts are not included. A prompt is a user record the
-person typed (text, text with pasted images/files, or a slash command); tool results, hook
+write 2.0, output 5; cache_creation_input_tokens is the total written and the 1-hour share comes
+from the cache_creation breakdown, so an old transcript without that breakdown is priced as
+5-minute writes) on the main session only; subagent transcripts are not included. A prompt is a
+user record the person typed (text, pasted images/files, or a slash command); tool results, hook
 context and compaction summaries are not prompts. Time per prompt is wall-clock from the typed
 prompt to the last assistant message before the next one, so it includes waiting for background
 agents and for pipelines. Agent reports are the tool results of Agent/Task calls plus the
-<result> blocks of background task notifications; "over N" uses MODEL_ROUTER_REPORT_CHARS
-(default 4000), the budget of hooks/report-budget.py. Set SKIP_SESSION=<id> to leave one out.
+<result> blocks of background task notifications; the acknowledgement of a background launch
+("Async agent launched successfully", toolUseResult.status "async_launched") is not a report.
+"over N" uses MODEL_ROUTER_REPORT_CHARS (default 4000), the budget of hooks/report-budget.py. Set SKIP_SESSION=<id> to leave one out.
 """
 import collections, glob, json, os, re, sys
 from datetime import datetime
@@ -26,11 +28,11 @@ except ValueError:
 
 
 def writes(u):
-    """(5-minute, 1-hour) cache-write tokens of one call."""
-    cc = u.get("cache_creation") or {}
-    if "ephemeral_5m_input_tokens" in cc or "ephemeral_1h_input_tokens" in cc:
-        return cc.get("ephemeral_5m_input_tokens") or 0, cc.get("ephemeral_1h_input_tokens") or 0
-    return u.get("cache_creation_input_tokens") or 0, 0
+    """(5-minute, 1-hour) cache-write tokens of one call. cache_creation_input_tokens is the total; the
+    1-hour figure of the cache_creation breakdown is a part of it, capped at the total (as Claude Code prices it)."""
+    total = u.get("cache_creation_input_tokens") or 0
+    one_hour = min((u.get("cache_creation") or {}).get("ephemeral_1h_input_tokens") or 0, total)
+    return total - one_hour, one_hour
 
 
 def cost(u):
@@ -51,12 +53,15 @@ def quantile(values, q):
 
 
 def text_of(c):
-    """Text the person typed: a string, or the text blocks of a list without tool results. Else None."""
+    """Text the person typed: a string, or the text blocks of a list without tool results; "[pasted image]"
+    for a list of image/document blocks with no text (a pasted image or file sent alone). Else None."""
     if isinstance(c, list):
         blocks = [b for b in c if isinstance(b, dict)]
-        if any(b.get("type") == "tool_result" for b in blocks) or not any(b.get("type") == "text" for b in blocks):
+        if any(b.get("type") == "tool_result" for b in blocks):
             return None
         c = "\n".join(str(b.get("text") or "") for b in blocks if b.get("type") == "text")
+        if not c.strip() and any(b.get("type") in ("image", "document") for b in blocks):
+            return "[pasted image]"
     return c if isinstance(c, str) else None
 
 
@@ -76,12 +81,19 @@ def typed_prompt(r):
 
 
 def reports(r, agent_ids):
-    """Texts of agent reports in a user record: tool results of Agent/Task calls, and <result> blocks."""
+    """Texts of agent reports in a user record: tool results of Agent/Task calls, and <result> blocks.
+    A background launch's acknowledgement (toolUseResult.status "async_launched", or the fixed text
+    "Async agent launched successfully. (This tool result is internal metadata ...") is skipped."""
     c = (r.get("message") or {}).get("content"); out = []
+    if (r.get("toolUseResult") or {}).get("status") == "async_launched":
+        return re.findall(r"<result>(.*?)</result>", text_of(c) or "", flags=re.S)
     for b in (c if isinstance(c, list) else []):
         if isinstance(b, dict) and b.get("type") == "tool_result" and b.get("tool_use_id") in agent_ids:
             t = b.get("content")
-            out.append(t if isinstance(t, str) else "\n".join(str(x.get("text") or "") for x in (t or []) if isinstance(x, dict)))
+            t = t if isinstance(t, str) else "\n".join(str(x.get("text") or "") for x in (t or []) if isinstance(x, dict))
+            if t.startswith("Async agent launched") or "(This tool result is internal metadata" in t:
+                continue
+            out.append(t)
     out += re.findall(r"<result>(.*?)</result>", text_of(c) or "", flags=re.S)
     return out
 
@@ -104,7 +116,7 @@ for cfg in dirs:
             if isinstance(r, dict) and isinstance(r.get("message") or {}, dict):
                 recs.append(r)
         g = "after" if routed else "before"; G = groups[g]; T = seconds[g]
-        seen = set(); agent_ids = set(); cur = None; opened = []; prompts = 0
+        seen = set(); seen_tools = set(); agent_ids = set(); cur = None; opened = []; prompts = 0
         for r in recs:
             if r.get("isSidechain"):
                 continue
@@ -123,6 +135,10 @@ for cfg in dirs:
                 for b in (c if isinstance(c, list) else []):
                     if not isinstance(b, dict) or b.get("type") != "tool_use":
                         continue
+                    tid = b.get("id")                 # a streamed message is written once per block, under one message id
+                    if tid and tid in seen_tools:
+                        continue
+                    seen_tools.add(tid)
                     n = str(b.get("name") or ""); i = b.get("input") if isinstance(b.get("input"), dict) else {}
                     if cur is not None:
                         if n in ("Edit", "Write", "NotebookEdit", "MultiEdit"): cur["edits"] += 1

@@ -4,9 +4,10 @@
 The routing rules ask the main session to pass the tier's model on every Agent() call;
 this hook makes it certain. A launch that already names a model is left alone (an
 explicit choice wins), and so is any agent type the tiers say nothing about — those
-keep Claude Code's own default. No permission decision is made, so the normal
-permission flow is unchanged; only the input is completed. The hook also runs inside
-subagents, so the coordinator's builder launches get the configured builder model.
+keep Claude Code's own default. For these launches no permission decision is made, so
+the normal permission flow is unchanged; only the input is completed (the one denial is
+the fork case below). The hook also runs inside subagents, so the coordinator's builder
+launches get the configured builder model.
 
 The value is always one of the four aliases the Agent tool accepts (haiku, sonnet, opus,
 fable): anything else in updatedInput fails the tool's schema and the launch is denied.
@@ -18,7 +19,7 @@ model, which defeats the routing. The denial tells the session which agent to us
 (`/model-router:setup` can switch the fork feature off at the source instead, with
 `CLAUDE_CODE_FORK_SUBAGENT=false`; then the fork type does not exist and this is moot.)
 
-Local-only and fail-open: any error exits 0 with no output.
+Local-only and fail-open: any error exits 0 with no output (MODEL_ROUTER_DEBUG=1 re-raises it).
 
 Tunable (environment):
   MODEL_ROUTER_AGENT_MODELS   extra `agent-type=tier` pairs, comma-separated, tier one of
@@ -80,5 +81,6 @@ if __name__ == "__main__":
     try:
         main()
     except Exception:
-        pass
+        if os.environ.get("MODEL_ROUTER_DEBUG"):
+            raise
     sys.exit(0)

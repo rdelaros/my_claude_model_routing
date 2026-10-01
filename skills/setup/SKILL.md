@@ -18,7 +18,9 @@ python3 <skill dir>/scripts/models.py doctor
 
 `show` prints the provider, the main model, the alias each tier uses (a stored value that is not an alias is flagged `INVALID` and the default is used), any alias mapped to a specific model id with the settings file that sets it, and the fork gate. If it prints a `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` warning, tell the user first: with that variable the Agent tool ignores every `model`, so nothing below has any effect until it is removed. The plain `CLAUDE_CODE_SUBAGENT_MODEL` is only a note: it is the default for agents that name no model, and the router's agents all do.
 
-`doctor` is read-only and free: plugin root, whether the rules file exists and how long the injected text is, the feedback file and its rows, session markers, tier models, mappings, fork gate, the subagent-model variables and the `claude` on PATH, ending with `problems: none` or a list (exit 1). Run it whenever the user wonders whether the router is active or why nothing was delegated, and read its problem list to them.
+`doctor` is read-only and free. It checks that the files are in place (plugin root, rules file, hooks importable), what would be injected (the length of the rules and corrections text, the feedback file and its rows, session markers), whether the plugin is enabled in settings (`plugin enabled : model-router@<marketplace> = true|false (<file>)`; `false` is a problem, a missing entry is only a note for a `--plugin-dir` checkout) and the overrides (tier models, mappings, fork gate, the subagent-model variables), plus the `claude` on PATH, ending with `problems: none` or a list (exit 1). It reads the settings files on disk, so a `--settings` file or JSON on the command line is invisible to it. Run it whenever the user wonders whether the router is active or why nothing was delegated, and read its problem list to them.
+
+Both commands read the variables the way Claude Code does: a settings file beats the shell. A `note` line says when an exported shell value is overridden by a file, and a source of `exported by the running session (stale; restart to clear)` means this session still carries a value that no settings file sets any more.
 
 ## 2. Check
 
@@ -50,7 +52,7 @@ python3 <skill dir>/scripts/models.py set builder=sonnet operator=haiku senior_o
 python3 <skill dir>/scripts/models.py reset [tier ...]       # back to the defaults (all tiers when none named)
 ```
 
-Alias mapping, only when the user gave you a model id that checked `OK`. This writes `ANTHROPIC_DEFAULT_<ALIAS>_MODEL` into the `env` block of `<config dir>/settings.json`, the user's own settings file, so state exactly what will be written and get a yes first. The script backs the file up before writing and warns when a project, local or managed settings file, or the shell, already sets the same variable (those win).
+Alias mapping, only when the user gave you a model id that checked `OK`. This writes `ANTHROPIC_DEFAULT_<ALIAS>_MODEL` into the `env` block of `<config dir>/settings.json`, the user's own settings file, so state exactly what will be written and get a yes first. The script backs the file up before writing and warns when a project, local or managed settings file already sets the same variable (those win; a value exported in the shell loses to the file and is only noted).
 
 ```
 python3 <skill dir>/scripts/models.py map haiku=<model-id>
@@ -61,7 +63,7 @@ A mapping applies to every use of that alias in Claude Code, not only to this pl
 
 ## 5. Forks (optional)
 
-With Claude Code's fork feature on (the default in 2.1.28x), every Agent launch is asynchronous and the model is told to "fork yourself" for side tasks, which the plugin's hook denies. `forks off` writes `CLAUDE_CODE_FORK_SUBAGENT=false` into the `env` block of `<config dir>/settings.json`: Agent launches run in the foreground again (operators still run in the background, their definitions say so) and the fork agent type disappears. Offer it when `show` says the fork gate is on; say exactly what will be written and get a yes first. `forks on` removes the variable.
+With Claude Code's fork feature on (the default in 2.1.28x), every Agent launch is asynchronous and the model is told to "fork yourself" for side tasks, which the plugin's hook denies. `forks off` writes `CLAUDE_CODE_FORK_SUBAGENT=false` into the `env` block of `<config dir>/settings.json`: it removes the fork agent type (so there is nothing to deny) and puts the `run_in_background` parameter back on the Agent tool. Launches still run in the background by default; the routing rules then tell the main session to pass `run_in_background: false` for builders and the coordinator (operators keep `background: true` regardless). Offer it when `show` says the fork gate is on; say exactly what will be written and get a yes first. `forks on` removes the variable. A value that is not a recognised boolean is ignored by Claude Code (`show` says so, gate stays on).
 
 ```
 python3 <skill dir>/scripts/models.py forks off
@@ -69,4 +71,4 @@ python3 <skill dir>/scripts/models.py forks off
 
 ## 6. Confirm
 
-Run `check` again for whatever was mapped (a new mapping only takes effect in new processes, which the check is) and `doctor` once. Then tell the user, in two or three lines: which model each tier now uses, what was mapped, and that the change applies to sessions started from now on. If a tier could not be given a working model, say so plainly rather than leaving the default in place silently.
+Run `check` again for whatever was mapped and `doctor` once. A new mapping takes effect in sessions started from now on; `check` re-reads the settings files (inside a running session it drops the session's already-exported model variables from the probe's environment, so the probe sees the new value even though this session does not). Then tell the user, in two or three lines: which model each tier now uses, what was mapped, and that the change applies to sessions started from now on. If a tier could not be given a working model, say so plainly rather than leaving the default in place silently.

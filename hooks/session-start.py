@@ -8,13 +8,14 @@ loaded conversation, so re-injecting unchanged rules on resume costs nothing, an
 rules or new corrections are picked up.
 
 Local-only and fail-open: no network, and any error exits 0 with no output so a
-broken hook never blocks a session.
+broken hook never blocks a session (MODEL_ROUTER_DEBUG=1 re-raises it).
 
 Contract (Claude Code SessionStart hook):
   stdin : JSON with session_id
   stdout: {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "..."}}
 """
 import json
+import os
 import sys
 
 from router_context import build_context, ensure_feedback_file, session_marker
@@ -53,5 +54,6 @@ if __name__ == "__main__":
     try:
         main()
     except Exception:
-        pass
+        if os.environ.get("MODEL_ROUTER_DEBUG"):
+            raise
     sys.exit(0)

@@ -15,9 +15,9 @@ PostToolBatch fires once per batch after every call in it has resolved, failed o
 included, so parallel tool calls cannot race the counter the way per-call PostToolUse
 hooks do. State lives in <config dir>/model-router/sessions/<session_id>.ops, next to the
 session markers, and is pruned with them. A payload with an `agent_id` (a subagent) is
-neither counted nor nudged: tool hooks carry it inside subagents since Claude Code 2.1.286.
+neither counted nor nudged: tool hooks carry it inside subagents (verified in Claude Code 2.1.286).
 
-Local-only and fail-open: any error exits 0 with no output.
+Local-only and fail-open: any error exits 0 with no output (MODEL_ROUTER_DEBUG=1 re-raises it).
 
 Tunable (environment):
   MODEL_ROUTER_NUDGE_AT   calls at which the first reminder fires (default 3; 0 disables);
@@ -112,5 +112,6 @@ if __name__ == "__main__":
     try:
         main()
     except Exception:
-        pass
+        if os.environ.get("MODEL_ROUTER_DEBUG"):
+            raise
     sys.exit(0)
