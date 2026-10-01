@@ -85,7 +85,8 @@ def reports(r, agent_ids):
     A background launch's acknowledgement (toolUseResult.status "async_launched", or the fixed text
     "Async agent launched successfully. (This tool result is internal metadata ...") is skipped."""
     c = (r.get("message") or {}).get("content"); out = []
-    if (r.get("toolUseResult") or {}).get("status") == "async_launched":
+    tur = r.get("toolUseResult")
+    if isinstance(tur, dict) and tur.get("status") == "async_launched":
         return re.findall(r"<result>(.*?)</result>", text_of(c) or "", flags=re.S)
     for b in (c if isinstance(c, list) else []):
         if isinstance(b, dict) and b.get("type") == "tool_result" and b.get("tool_use_id") in agent_ids:
