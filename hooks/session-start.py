@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """SessionStart hook: inject the model-routing rules, or the user's routing corrections.
 
-Run once per part (`rules`, `corrections`): a hook's additionalContext is capped at 4,000
-characters, so each part is its own hook with its own budget.
+Run once per part (`rules`, `corrections`): a hook's additionalContext is capped at 8,000
+characters, so each part is its own hook with its own budget. It fires on startup, resume,
+clear, compact and fork; Claude Code drops a SessionStart context that is already in the
+loaded conversation, so re-injecting unchanged rules on resume costs nothing, and changed
+rules or new corrections are picked up.
 
 Local-only and fail-open: no network, and any error exits 0 with no output so a
 broken hook never blocks a session.
@@ -14,7 +17,7 @@ Contract (Claude Code SessionStart hook):
 import json
 import sys
 
-from router_context import build_context, session_marker
+from router_context import build_context, ensure_feedback_file, session_marker
 
 
 def main():
@@ -37,6 +40,11 @@ def main():
         try:
             marker.parent.mkdir(parents=True, exist_ok=True)
             marker.touch()
+        except OSError:
+            pass
+    if part == "rules":
+        try:
+            ensure_feedback_file()  # with its header, so the first correction is a plain row
         except OSError:
             pass
 

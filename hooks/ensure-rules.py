@@ -4,7 +4,7 @@
 SessionStart only fires when a session begins, so a session that was already open when
 the plugin was installed, enabled or reloaded has no rules. This hook injects them on
 the next prompt, once per session. Run once per part (`rules`, `corrections`), like
-session-start.py, because each hook's additionalContext has its own 4,000-character cap.
+session-start.py, because each hook's additionalContext has its own 8,000-character cap.
 
 Local-only and fail-open: any error exits 0 with no output so a broken hook never
 blocks a prompt.
@@ -20,10 +20,25 @@ STALE_SECONDS = 14 * 24 * 3600
 
 
 def transcript_has(path, part):
-    """True if a hook already injected that part (the record, not a mention of the heading)."""
+    """True if a hook already injected that part: a hook_additional_context record that carries
+    the heading. A tool result that merely quotes both strings (reading this plugin's source,
+    say) is not one."""
     needle, record = (RULES_MARKER if part == "rules" else CORRECTIONS_MARKER).encode(), b"hook_additional_context"
     with open(path, "rb") as f:
-        return any(needle in line and record in line for line in f)
+        for line in f:
+            if needle not in line or record not in line:
+                continue
+            try:
+                d = json.loads(line)
+            except ValueError:
+                return True  # cannot tell; assume injected rather than inject twice
+            if not isinstance(d, dict):
+                continue
+            if d.get("type") == "hook_additional_context" or d.get("message", {}).get("type") == "hook_additional_context":
+                return True
+            if d.get("type") not in ("user", "assistant"):
+                return True  # some other record shape that carries the context
+    return False
 
 
 def forget_old_sessions(folder):
