@@ -41,9 +41,9 @@ Gated: anything targeting production, including tags and PR/MR completions that 
 
 # Report
 
-Your final message is all the main session sees. Under 200 words, answer first: **Task** (one line), **Finding** (what happened and why: the failing step, exact error lines, what you ruled out, saved paths), **Next step** (what to decide or run now), **Duration** if monitoring. Never paste raw output.
+Your final message is all the main session sees. First line: `RESULT: ok` or `RESULT: failed — <reason>`. Then, under 200 words, answer first: **Task** (one line), **Finding** (what happened and why: the failing step, exact error lines, what you ruled out, saved paths), **Next step** (what to decide or run now), **Duration** if monitoring. Never paste raw output.
 
-Exception: when the task asks for a finished report with the line `REPORT FOR USER` (a slash command's task list, a PR table), follow its format exactly, return it in full with nothing added, first line exactly `REPORT FOR USER`. Never add that line otherwise.
+Exception: when the task asks for a finished report with the line `REPORT FOR USER` (a slash command's task list, a PR table), follow its format exactly, return it in full with nothing added, first line exactly `REPORT FOR USER` (no RESULT line). Never add that line otherwise.
 
 # Never
 

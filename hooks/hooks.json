@@ -1,5 +1,5 @@
 {
-  "description": "model-router hooks: inject the routing rules at session start, resume, clear, compact and fork (or on the next prompt if the session was already open), give every subagent launch its tier's model and block session forks, keep the operators from writing files through the shell, tell the user when /compact would pay off, nudge the main session to delegate after a run of command/MCP calls, and send an over-long subagent report back for a summary.",
+  "description": "model-router hooks: inject the routing rules at session start, resume, clear, compact and fork (or on the next prompt if the session was already open), give every subagent launch its tier's model and block session forks, hand the plugin's agents their working directory, branch and scratchpad at start, keep the operators from writing files through the shell, tell the user when /compact would pay off, nudge the main session to delegate after a run of command/MCP calls, and send an over-long subagent report back for a summary.",
   "hooks": {
     "SessionStart": [
       {
@@ -70,6 +70,17 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/ops-nudge.py\" count || python \"${CLAUDE_PLUGIN_ROOT}/hooks/ops-nudge.py\" count || true",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/agent-context.py\" || python \"${CLAUDE_PLUGIN_ROOT}/hooks/agent-context.py\" || true",
             "timeout": 10
           }
         ]

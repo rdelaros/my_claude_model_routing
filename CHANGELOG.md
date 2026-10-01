@@ -42,6 +42,12 @@ Verified against Claude Code 2.1.286; the hooks now use events and fields that e
 - The rules, the four agents and the skill description were rewritten to the published prompt-writing guidance and cut to roughly 60 percent of their size with every rule kept: about 1,300 tokens of rules and 160 of agent descriptions per main-session call instead of 1,900 and 380; operator turns carry 1,200 instruction tokens instead of 2,000.
 - The rules open with the premise that the user speaks naturally and the main session alone decides delegation, parallel runs and confirmations, and they treat an explanation or half-finished thought as conversation: answer briefly, ask at most one question, start no work until there is a clear ask.
 
+### Writing for the model
+- Four one-line routing examples (two in Spanish) in the rules; a Goal / Where / Constraints / Report-as template for agent tasks; tasks in English, answers in the user's language.
+- Every agent report starts with `RESULT: ok` or `RESULT: failed — <reason>`.
+- A `SubagentStart` hook (`hooks/agent-context.py`) gives the plugin's agents their working directory, git branch and scratchpad path at start.
+- `evals/`: twenty routing cases for `claude plugin eval`, so rule changes are measured.
+
 ### Tests
 - `tests/test_hooks.py` runs every hook as a subprocess against a temporary config directory (with `MODEL_ROUTER_DEBUG=1`, so a crash fails instead of passing silently), `tests/test_setup.py` runs the setup script against a fake `claude`, and `tests/test_tools.py` runs the measurement scripts on a synthetic transcript; a GitHub Actions workflow runs them on Linux and Windows.
 

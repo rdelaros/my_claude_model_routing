@@ -414,6 +414,23 @@ class GuardWrites(HookCase):
         self.assertLess(len(self.run_hook("guard-writes.py", {"tool_name": "Bash", "agent_type": "model-router:operator", "tool_input": {"command": "x > " + "y" * 500}})["hookSpecificOutput"]["permissionDecisionReason"]), 400)
 
 
+class AgentContext(HookCase):
+    def test_plugin_agents_get_cwd_branch_and_scratchpad(self):
+        out = self.run_hook("agent-context.py", {"agent_type": "model-router:operator", "agent_id": "a", "cwd": str(ROOT), "scratchpad_dir": "/tmp/s"})
+        text = out["hookSpecificOutput"]["additionalContext"]
+        self.assertEqual(out["hookSpecificOutput"]["hookEventName"], "SubagentStart")
+        self.assertIn("Working directory: " + str(ROOT), text)
+        self.assertIn("git branch", text)
+        self.assertIn("Scratchpad for saved output: /tmp/s", text)
+        self.assertIn("CLAUDE.md is not loaded", text)
+        self.assertLess(len(text), 600)
+        builder = self.run_hook("agent-context.py", {"agent_type": "model-router:builder", "cwd": self.tmp.name})["hookSpecificOutput"]["additionalContext"]
+        self.assertNotIn("CLAUDE.md", builder)
+        self.assertNotIn("git branch", builder, "no branch outside a repository")
+        self.assertIsNone(self.run_hook("agent-context.py", {"agent_type": "Explore", "cwd": str(ROOT)}))
+        self.assertIsNone(self.run_hook("agent-context.py", {"cwd": str(ROOT)}))
+
+
 class Definitions(unittest.TestCase):
     def frontmatter(self, path):
         text = path.read_text(encoding="utf-8")
@@ -435,6 +452,7 @@ class Definitions(unittest.TestCase):
                     self.assertIn("|| true", hook["command"])
         self.assertEqual(hooks["SessionStart"][0]["matcher"], "startup|resume|clear|compact|fork")
         self.assertIn("PostToolBatch", hooks)
+        self.assertIn("SubagentStart", hooks)
 
     @unittest.skipIf(os.name == "nt", "the hook commands are POSIX shell lines")
     def test_hook_commands_run_as_written(self):
@@ -480,12 +498,13 @@ class Definitions(unittest.TestCase):
             self.assertNotIn("10-minute Bash limit", text)
             self.assertIn("last line of your task is `CONFIRMED BY USER: <command> on <target>`", text)
             self.assertIn("Each tool-calling message is one turn", text)
+            self.assertIn("RESULT: ok", text)
 
     def test_rules_mention_what_the_hooks_expect(self):
         rules = (ROOT / "rules" / "routing.md").read_text(encoding="utf-8")
         self.assertTrue(rules.startswith(router_context.RULES_MARKER))
         for needle in ("{builder_model}", "{operator_model}", "{senior_operator_model}", "CONFIRMED BY USER: <command> on <target>", "REPORT FOR USER", "Full report:",
-                       "| date | situation | routed to | should be | why |", "run_in_background", "operators do not load CLAUDE.md"):
+                       "| date | situation | routed to | should be | why |", "run_in_background", "operators do not load CLAUDE.md", "RESULT: ok", "Examples:", "Goal / Where"):
             self.assertIn(needle, rules)
         self.assertNotIn("Never write 3+ files here", rules)
 
@@ -500,6 +519,18 @@ class Definitions(unittest.TestCase):
         script = (ROOT / "tools" / "session_report.py").read_text(encoding="utf-8")
         blocks = re.findall(r"```python\n(.*?)```", doc, re.S)
         self.assertTrue(any(b.strip() == script.strip() for b in blocks), "docs/optimize-a-machine.md appendix has drifted from tools/session_report.py")
+
+    def test_eval_cases_are_well_formed(self):
+        cases = [p for p in (ROOT / "evals").iterdir() if p.is_dir()]
+        self.assertGreaterEqual(len(cases), 20)
+        for case in cases:
+            prompt = (case / "prompt.md").read_text(encoding="utf-8")
+            self.assertTrue(prompt.startswith("---\nmax_turns:"), case.name)
+            self.assertTrue(prompt.strip().split("---")[-1].strip(), "empty prompt in " + case.name)
+            graders = list((case / "graders").glob("*.md"))
+            self.assertTrue(graders, case.name)
+            for g in graders:
+                self.assertIn("type: llm", g.read_text(encoding="utf-8"))
 
     def test_versions_agree(self):
         plugin = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))

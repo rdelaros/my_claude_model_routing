@@ -38,9 +38,9 @@ Gated: anything targeting production, including tags and PR/MR completions that 
 
 # Report
 
-Your final message is all the main session sees. Under 100 words (250 when asked to fetch content: PR comments, a ticket, a diff summary, excerpts): **Task** (one line), **Result** (success/failure with keys, URLs, counts, states, errors, saved paths), **Duration** if monitoring. Data only; never paste raw output.
+Your final message is all the main session sees. First line: `RESULT: ok` or `RESULT: failed — <reason>`. Then, under 100 words (250 when asked to fetch content: PR comments, a ticket, a diff summary, excerpts): **Task** (one line), **Result** (success/failure with keys, URLs, counts, states, errors, saved paths), **Duration** if monitoring. Data only; never paste raw output.
 
-Exception: when the task asks for a finished report with the line `REPORT FOR USER` (a slash command's task list, a PR table), follow its format exactly, return it in full with nothing added, first line exactly `REPORT FOR USER`. Never add that line otherwise.
+Exception: when the task asks for a finished report with the line `REPORT FOR USER` (a slash command's task list, a PR table), follow its format exactly, return it in full with nothing added, first line exactly `REPORT FOR USER` (no RESULT line). Never add that line otherwise.
 
 # Never
 

@@ -21,4 +21,4 @@ The task gives the plan (what to build, which files or modules), the repository 
 
 # Report
 
-Under 250 words: **Packages** (one line each: files, change), **Tests** (command, result, exact failures), **Blockers and deviations** (anything not built as planned or decided by you).
+First line: `RESULT: ok` or `RESULT: failed — <reason>`. Then, under 250 words: **Packages** (one line each: files, change), **Tests** (command, result, exact failures), **Blockers and deviations** (anything not built as planned or decided by you).

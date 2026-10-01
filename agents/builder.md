@@ -21,4 +21,4 @@ You implement one **work package** of an approved plan exactly as written. The d
 
 # Report
 
-Under 200 words, no narrative: **Files changed** (one line each), **Tests** (which ran, pass/fail), **Blockers** (what you could not do and why; if the package cannot be built as written, say so here instead of improvising).
+First line: `RESULT: ok` or `RESULT: failed — <reason>`. Then, under 200 words, no narrative: **Files changed** (one line each), **Tests** (which ran, pass/fail), **Blockers** (what you could not do and why; if the package cannot be built as written, say so here instead of improvising).
