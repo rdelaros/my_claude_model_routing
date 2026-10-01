@@ -78,8 +78,8 @@ class RulesContext(HookCase):
         (self.cfg / "model-router").mkdir()
         (self.cfg / "model-router" / "config.json").write_text(json.dumps({"builder": "opus", "operator": "nonsense"}))
         text = self.run_hook("session-start.py", {"session_id": "s1"}, "rules")["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("model `opus`", text)
-        self.assertIn("model `haiku`", text)  # invalid value falls back to the default
+        self.assertIn("`model-router:builder` (`opus`)", text)
+        self.assertIn("`model-router:operator` (`haiku`)", text)  # invalid value falls back to the default
 
     def test_long_rules_are_cut_at_a_line_and_the_feedback_line_survives(self):
         fake = Path(self.tmp.name) / "plugin"
@@ -472,14 +472,14 @@ class Definitions(unittest.TestCase):
             return re.search(r"^# " + re.escape(heading) + r"\n(.*?)(?=^# |\Z)", text, re.S | re.M).group(1)
         _, op = self.frontmatter(ROOT / "agents" / "operator.md")
         _, so = self.frontmatter(ROOT / "agents" / "senior-operator.md")
-        for heading in ("Confirmation gate", "Tool-specific rules (when the task involves them)"):
+        for heading in ("Confirmation gate", "Tool rules (when used)"):
             self.assertEqual(section(op, heading), section(so, heading), heading)
         for text in (op, so):
             self.assertIn("REPORT FOR USER", text)
             self.assertIn("timeout: 600000", text)
             self.assertNotIn("10-minute Bash limit", text)
             self.assertIn("last line of your task is `CONFIRMED BY USER: <command> on <target>`", text)
-            self.assertIn("turns: every message of yours that calls tools is one turn", text)
+            self.assertIn("Each tool-calling message is one turn", text)
 
     def test_rules_mention_what_the_hooks_expect(self):
         rules = (ROOT / "rules" / "routing.md").read_text(encoding="utf-8")

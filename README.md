@@ -126,6 +126,10 @@ The rules were tuned against 816 real prompts from 37 sessions. Three findings s
 
 Operational work was 41% of prompts and 50% of cost; building 20% and 37%; thinking 39% and 13%.
 
+## Token footprint
+
+Everything the plugin adds to the main session is paid for on every API call of that session, so it is kept small and measured by the tests: the injected rules are about 4,800 characters (roughly 1,300 tokens), the four agent descriptions together about 620 characters, the skill description about 330. The agents' own instructions are loaded only into the agent's small context, on its cheap model: about 1,200 tokens for the operator, 1,400 for the senior operator, 400 to 500 for the builder and coordinator. The texts follow the prompt-writing guidance Anthropic publishes: one role per agent, positive instructions, an explicit report format with a word limit, short third-person descriptions so automatic delegation picks the right agent, `effort` and `maxTurns` as the speed knobs, and nothing in a hook message beyond what the model needs at that moment.
+
 ## Customizing
 
 Edit `rules/routing.md` to match your workflow — the classification examples are hints for the model, not match patterns. The injected text may be up to 8,000 characters (the hook keeps a margin and cuts the body at a line boundary, saying so, when it is longer; the feedback-file line always survives). The operators' tool-specific rules (Azure CLI, Azure DevOps, Terraform, GitLab, GitHub, Kubernetes/Helm, Databricks, Jira) apply only when a task involves those tools; the confirmation gate and those rules are identical in both operator files and a test keeps them so. Both operators inherit every tool the session has, including MCP servers, except the file-editing tools and `Agent`.

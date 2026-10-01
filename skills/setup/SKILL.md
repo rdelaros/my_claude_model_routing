@@ -1,6 +1,6 @@
 ---
 name: setup
-description: Set up which model the model-router plugin uses for its Building, Operational and Diagnosis tiers, verify that each model actually answers on this provider, and check that the router is active. Use when the user wants to configure or change the router's models, when a builder or operator subagent fails with a model error, after installing the plugin under a new config directory or gateway (Bedrock, Vertex, Foundry), when asked whether sonnet/haiku work here, or when the user asks "is the router working", "why was nothing delegated", or for the model-router doctor.
+description: Configure and check the model-router: the model each tier uses (haiku, sonnet, opus, fable), whether those models answer on this provider, and whether the router is active (doctor). Use after installing, when a builder or operator fails with a model error, or when asked whether the router is working or why nothing was delegated.
 ---
 
 # model-router setup
