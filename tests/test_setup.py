@@ -6,6 +6,7 @@ result, so the real CLI is never called and nothing is spent.
 import importlib.util
 import json
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -51,9 +52,16 @@ class SetupCase(unittest.TestCase):
         self.cfg.mkdir()
         self.bin = Path(self.tmp.name) / "bin"
         self.bin.mkdir()
-        fake = self.bin / "claude"
-        fake.write_text(FAKE_CLAUDE)
-        fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+        fake_py = self.bin / "fake_claude.py"
+        fake_py.write_text(FAKE_CLAUDE)
+        if os.name == "nt":  # shutil.which() on Windows only finds names with a PATHEXT extension
+            (self.bin / "claude.cmd").write_text('@"{0}" "{1}" %*\r\n'.format(sys.executable, fake_py))
+        else:
+            fake = self.bin / "claude"
+            fake.write_text('#!/bin/sh\nexec "{0}" "{1}" "$@"\n'.format(sys.executable, fake_py))
+            fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+        found = shutil.which("claude", path=str(self.bin))
+        self.assertTrue(found and str(self.bin) in found, "the fake claude must shadow any real one: {0}".format(found))
         self.env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE" and not k.startswith(("MODEL_ROUTER_", "CLAUDE_CODE_SUBAGENT_MODEL", "ANTHROPIC_DEFAULT_", "CLAUDE_CODE_FORK"))}
         self.env.update({"CLAUDE_CONFIG_DIR": str(self.cfg), "CLAUDE_PLUGIN_ROOT": str(ROOT), "PATH": str(self.bin) + os.pathsep + os.environ.get("PATH", "")})
 
