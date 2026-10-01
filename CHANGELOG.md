@@ -48,6 +48,9 @@ Verified against Claude Code 2.1.286; the hooks now use events and fields that e
 - A `SubagentStart` hook (`hooks/agent-context.py`) gives the plugin's agents their working directory, git branch and scratchpad path at start.
 - `evals/`: twenty routing cases for `claude plugin eval`, so rule changes are measured.
 
+### Training mode
+- `/model-router:train`: the session explains each routing decision (tier, agent, model, deciding rule), asks before acting, records corrections with the user's reason, and reports the cost in hindsight; `quiet`, `review` and `off` arguments.
+
 ### Tests
 - `tests/test_hooks.py` runs every hook as a subprocess against a temporary config directory (with `MODEL_ROUTER_DEBUG=1`, so a crash fails instead of passing silently), `tests/test_setup.py` runs the setup script against a fake `claude`, and `tests/test_tools.py` runs the measurement scripts on a synthetic transcript; a GitHub Actions workflow runs them on Linux and Windows.
 

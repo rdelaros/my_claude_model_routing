@@ -520,6 +520,13 @@ class Definitions(unittest.TestCase):
         blocks = re.findall(r"```python\n(.*?)```", doc, re.S)
         self.assertTrue(any(b.strip() == script.strip() for b in blocks), "docs/optimize-a-machine.md appendix has drifted from tools/session_report.py")
 
+    def test_train_skill(self):
+        text = (ROOT / "skills" / "train" / "SKILL.md").read_text(encoding="utf-8")
+        self.assertTrue(text.startswith("---\nname: train\n"))
+        self.assertLess(len(re.search(r"description:(.*)", text).group(1)), 400)
+        for needle in ("$ARGUMENTS", "| date | situation | routed to | should be | why |", "`quiet`", "`review`", "`off`"):
+            self.assertIn(needle, text)
+
     def test_eval_cases_are_well_formed(self):
         cases = [p for p in (ROOT / "evals").iterdir() if p.is_dir()]
         self.assertGreaterEqual(len(cases), 20)
