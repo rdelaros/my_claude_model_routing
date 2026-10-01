@@ -43,9 +43,9 @@ Run the report on every config directory. Use `tools/session_report.py` from the
 python3 tools/session_report.py ~/.claude [other config dirs]
 ```
 
-It prints, per config: models used; prompts, turns and cost share by work type (answers / file edits / commands and MCP calls); cost share by context size per call; cache-write TTL types and how much cost is whole-context re-writes after a pause; how concentrated cost is in a few sessions; every skill and slash command invoked, with the context size at the moment it was invoked; and subagent calls with the model passed.
+It prints, per config: models used; the number of prompts and of compactions; prompts, turns and cost share by work type (answers / file edits / commands and MCP calls); cost share by context size per call; cache-write TTL types and how much cost is whole-context re-writes after a pause; how concentrated cost is in a few sessions; every skill and slash command invoked, with the context size at the moment it was invoked; and subagent calls with the model passed.
 
-Cost units are relative, at list-price ratios (cache read 0.1, cache write 1.25, input 1, output 5). Compare shares, not absolute values.
+Cost units are relative, at list-price ratios (cache read 0.1, 5-minute cache write 1.25, 1-hour cache write 2.0, input 1, output 5). Compare shares, not absolute values.
 
 If there are fewer than about ten sessions, say so: the numbers will be thin, and you should lean on what the user tells you about their work instead.
 
@@ -67,7 +67,7 @@ These go in `settings.json` of each config directory. Ask first; back the file u
 - **`autoCompactWindow`** — auto-compact starts at this many tokens instead of near the model's full window (close to a million with a `[1m]` model). Must be an **integer between 100000 and 1000000**; any other value is silently ignored. Recommend 200000 when the report shows a meaningful share of cost above 200k context; 150000 saves more but summarises more often. Let the user choose.
 - **`promptCacheTtl: "1h"`** — only when the report shows **5-minute-TTL cache writes** and a noticeable share of cost in re-writes after a pause. That is the default on an API key, Bedrock, Vertex and Foundry. A Claude subscription already gets a 1-hour cache: do not set it there. 1-hour writes are billed at a higher rate, so it pays only if the user pauses between turns — the report's re-write share tells you. Afterwards, new transcripts should show `ephemeral_1h_input_tokens` above zero; if the provider rejects the setting, remove it.
 
-Verify the names against the installed version before relying on them (`claude --version`, the settings reference in the docs). They were correct in Claude Code 2.1.274.
+Verify the names against the installed version before relying on them (`claude --version`, the settings reference in the docs). They were correct in Claude Code 2.1.286.
 
 ## Step 4 — Install the model-router plugin
 
@@ -87,15 +87,15 @@ Install per config directory, from whichever source this machine can reach:
 
 From a terminal the same commands are `claude plugin marketplace add …` and `claude plugin install …`, run through the wrapper function for a non-default config. With a folder install, updating means copying the new folder over the old one, then `/plugin marketplace update model-routing` and `/plugin update model-router@model-routing`.
 
-The hooks need `python3` or `python` on `PATH`. Use version 1.5.1 or later (earlier versions of the model check could report a false `FALLBACK`).
+The hooks need `python3` or `python` (3.9 or later) on `PATH`, and Claude Code 2.1.286 or later. Use plugin version 1.9.0 or later: it is the first whose hooks match that Claude Code version, and it has a `doctor` (`python3 <plugin>/skills/setup/scripts/models.py doctor`) that says whether the router is active — run it after installing and show the user.
 
-Then, **inside a session of that config**, run `/model-router:setup`. It sends one minimal request per model and reports `OK`, `FAIL` with the provider's error, or `FALLBACK`. It costs a few cents; tell the user first. Not every provider serves every model: if an alias fails, let the user pick a working one per tier, or map the alias to the provider's own model id — the skill explains how. If nothing cheaper than the main model works, still use the tiers: the fresh small context is most of the saving.
+Then, **inside a session of that config**, run `/model-router:setup`. It sends one tool-less, one-line request per model and reports `OK`, `FAIL` with the provider's error, or `FALLBACK`, with the cost of each probe (a fraction of a cent); tell the user before it runs. Not every provider serves every model: if an alias fails, let the user pick a working one per tier, or map the alias to the provider's own model id — the skill explains how. If nothing cheaper than the main model works, still use the tiers: the fresh small context is most of the saving.
 
 A session that was already open gets the routing rules on its next prompt; new sessions get them at start.
 
 ## Step 5 — Prune what is never used
 
-Skill descriptions and plugin hooks are paid for on every turn of every session.
+Skill descriptions are loaded into every session's context and paid for on every turn; a plugin's hooks cost process time on every prompt or tool call, and whatever context they inject is paid for like the descriptions.
 
 - **Standalone skills never invoked**: check that nothing else refers to them (`CLAUDE.md`, agents, commands, other skills — "related skills" links in a footer do not count as a dependency). Propose the list to the user, keeping any that match the topics of their prompts even if unused. Move the rest to `skills-disabled/`. If `CLAUDE.md` has a section pointing at a moved skill, remove that section too.
 - **Plugins whose skills were never invoked**, especially ones with hooks that run on every prompt: propose `claude plugin disable <plugin>@<marketplace>`. Reversible with `enable`.
@@ -128,7 +128,7 @@ What a forked skill needs, or it will break:
 - **Always name an `agent`.** A fork without one inherits the whole conversation — the opposite of the goal.
 - **It cannot ask questions and cannot see the conversation.** Replace every "ask the user" with a default or with "stop and report". If it needs to know *why* something was done, make the skill's `description` tell the caller to pass that as arguments.
 - **Its final message is all the user sees**, and forks run in the background by default. State in the skill what the final message must contain.
-- **It cannot launch further subagents.**
+- **It should not launch further subagents** unless it is a coordinator by design; a forked skill on a small model that spawns agents of its own is hard to follow and cost. Nested launches are capped at a depth of three.
 - Keep bulky output out of context: redirect long command output to a file and parse the file. Do not let a small model retype JSON into a file — give it the output format and let it build the result directly.
 - Correct tool names and paths while you are there (MCP tool prefixes, OS-specific paths).
 
@@ -168,7 +168,7 @@ So you know what to look for — not to be assumed here.
 - 45 skills were installed; 5 were ever used. Moving 33 to `skills-disabled/` cut the descriptions loaded per session from 15,700 to 4,000 characters.
 - None of the user's eight agents had a `model:` line.
 - A plugin installed mid-session did nothing until the next session, because its rules were injected only at session start. The plugin now covers that case.
-- Context injected by a hook is capped at 4,000 characters per hook command; split what you inject across commands when it is more.
+- Context injected by a hook is capped at 8,000 characters (and 200 lines) per hook command in Claude Code 2.1.286 (earlier plugin versions assumed 4,000); split what you inject across commands when it is more, and never let the last line be the one that gets cut.
 
 ## Appendix — `session_report.py`
 
@@ -179,22 +179,60 @@ Read-only. Save as `session_report.py` if the plugin folder is not on this machi
 """Measure how Claude Code is used on this machine, from its local transcripts. Read-only.
 
 usage: python3 session_report.py [CONFIG_DIR ...]      (default: ~/.claude)
+
+Cost units are relative, at list-price ratios: input 1, cache read 0.1, 5-minute cache write
+1.25, 1-hour cache write 2.0, output 5 (cache_creation_input_tokens is the total written and the
+1-hour share comes from the cache_creation breakdown, so an old transcript without that breakdown
+is priced as 5-minute writes). A prompt is a user record the person typed (text, pasted
+images/files, or a slash command); tool results, hook context and compaction summaries are not prompts.
 """
 import collections, glob, json, os, re, sys
 from datetime import datetime
 
 dirs = [os.path.expanduser(d) for d in (sys.argv[1:] or ["~/.claude"])]
-cost = lambda u: .1 * (u.get("cache_read_input_tokens") or 0) + 1.25 * (u.get("cache_creation_input_tokens") or 0) \
-    + (u.get("input_tokens") or 0) + 5 * (u.get("output_tokens") or 0)
-ts = lambda s: datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
 BUILTIN = set("plugin reload-plugins clear compact model resume config mcp login logout exit effort context cost status help memory "
               "agents skills permissions doctor rename export usage fast init tasks hooks statusline copy rewind theme loop "
               "schedule workflows artifacts feedback stats ide vim add-dir sandbox".split())
 
 
+def writes(u):
+    """(5-minute, 1-hour) cache-write tokens of one call. cache_creation_input_tokens is the total; the
+    1-hour figure of the cache_creation breakdown is a part of it, capped at the total (as Claude Code prices it)."""
+    total = u.get("cache_creation_input_tokens") or 0
+    one_hour = min((u.get("cache_creation") or {}).get("ephemeral_1h_input_tokens") or 0, total)
+    return total - one_hour, one_hour
+
+
+def cost(u):
+    w5, w1 = writes(u)
+    return (u.get("input_tokens") or 0) + .1 * (u.get("cache_read_input_tokens") or 0) + 1.25 * w5 + 2.0 * w1 + 5 * (u.get("output_tokens") or 0)
+
+
+def when(r):
+    try:
+        return datetime.fromisoformat(r["timestamp"].replace("Z", "+00:00")).timestamp()
+    except (KeyError, ValueError, AttributeError, TypeError):
+        return None
+
+
+def text_of(c):
+    """Text the person typed: a string, or the text blocks of a list without tool results; "[pasted image]"
+    for a list of image/document blocks with no text (a pasted image or file sent alone). Else None."""
+    if isinstance(c, list):
+        blocks = [b for b in c if isinstance(b, dict)]
+        if any(b.get("type") == "tool_result" for b in blocks):
+            return None
+        c = "\n".join(str(b.get("text") or "") for b in blocks if b.get("type") == "text")
+        if not c.strip() and any(b.get("type") in ("image", "document") for b in blocks):
+            return "[pasted image]"
+    return c if isinstance(c, str) else None
+
+
 def typed_prompt(r):
-    c = r.get("message", {}).get("content")
-    if r.get("isMeta") or not isinstance(c, str):
+    if r.get("isMeta") or r.get("isSidechain") or r.get("isCompactSummary"):
+        return None
+    c = text_of((r.get("message") or {}).get("content"))
+    if c is None:
         return None
     c = re.sub(r"<system-reminder>.*?</system-reminder>", "", c, flags=re.S).strip()
     m = re.search(r"<command-name>/?([\w:.-]+)</command-name>", c)
@@ -212,17 +250,18 @@ for cfg in dirs:
     ctx_bands = collections.Counter(); ctx_cost = collections.Counter()
     ttl = collections.Counter(); cold = [0, 0.0]; total = 0.0; models = collections.Counter()
     invoked = collections.defaultdict(lambda: [0, []])           # skill/command -> runs, context at start
-    agents = collections.Counter(); sess_cost = []; opened = []
+    agents = collections.Counter(); sess_cost = []; opened = []; compactions = 0
     for path in files:
-        cur = None; prev_call = None; ctx = 0; seen = set(); scost = 0.0
+        cur = None; prev_call = None; ctx = 0; seen = set(); seen_tools = set(); scost = 0.0
         for line in open(path, encoding="utf-8", errors="replace"):
             try:
                 r = json.loads(line)
             except ValueError:
                 continue
-            if r.get("isSidechain"):
+            if not isinstance(r, dict) or not isinstance(r.get("message") or {}, dict) or r.get("isSidechain"):
                 continue
             if r.get("type") == "user":
+                compactions += bool(r.get("isCompactSummary"))
                 p = typed_prompt(r)
                 if p is not None:
                     cur = {"edits": 0, "ops": 0, "turns": 0, "cost": 0.0}
@@ -230,13 +269,17 @@ for cfg in dirs:
                     if p.startswith("cmd:") and p[5:] not in BUILTIN:
                         invoked[p[4:]][0] += 1; invoked[p[4:]][1].append(ctx)
             elif r.get("type") == "assistant":
-                m = r.get("message", {}); u = m.get("usage") or {}
+                m = r.get("message") or {}; u = m.get("usage") or {}; c = m.get("content")
                 if m.get("model") == "<synthetic>":
                     continue
-                for b in m.get("content") or []:
-                    if b.get("type") != "tool_use":
+                for b in (c if isinstance(c, list) else []):
+                    if not isinstance(b, dict) or b.get("type") != "tool_use":
                         continue
-                    n, i = b.get("name", ""), b.get("input") or {}
+                    tid = b.get("id")                 # a streamed message is written once per block, under one message id
+                    if tid and tid in seen_tools:
+                        continue
+                    seen_tools.add(tid)
+                    n = str(b.get("name") or ""); i = b.get("input") if isinstance(b.get("input"), dict) else {}
                     if cur is not None:
                         if n in ("Edit", "Write", "NotebookEdit", "MultiEdit"): cur["edits"] += 1
                         elif n == "Bash" or n.startswith("mcp__"): cur["ops"] += 1
@@ -244,18 +287,16 @@ for cfg in dirs:
                         invoked["skill:" + str(i.get("skill"))][0] += 1; invoked["skill:" + str(i.get("skill"))][1].append(ctx)
                     if n in ("Agent", "Task"):
                         agents[(str(i.get("subagent_type")), str(i.get("model")))] += 1
-                if m.get("id") in seen:
+                if not u or m.get("id") in seen:
                     continue
                 seen.add(m.get("id")); c = cost(u); total += c; scost += c; models[m.get("model")] += 1
-                ctx = (u.get("cache_read_input_tokens") or 0) + (u.get("cache_creation_input_tokens") or 0) + (u.get("input_tokens") or 0)
+                w5, w1 = writes(u); w = w5 + w1; ttl["5m"] += w5; ttl["1h"] += w1
+                ctx = (u.get("cache_read_input_tokens") or 0) + w + (u.get("input_tokens") or 0)
                 band = "<100k" if ctx < 1e5 else "100-200k" if ctx < 2e5 else "200-400k" if ctx < 4e5 else "400k+"
                 ctx_bands[band] += 1; ctx_cost[band] += c
-                cc = u.get("cache_creation") or {}
-                ttl["5m"] += cc.get("ephemeral_5m_input_tokens") or 0; ttl["1h"] += cc.get("ephemeral_1h_input_tokens") or 0
-                w = u.get("cache_creation_input_tokens") or 0
-                now = ts(r["timestamp"]) if r.get("timestamp") else None
+                now = when(r)
                 if ctx >= 5e4 and w > .5 * ctx and prev_call and now and now - prev_call > 300:
-                    cold[0] += 1; cold[1] += 1.25 * w
+                    cold[0] += 1; cold[1] += 1.25 * w5 + 2.0 * w1
                 prev_call = now or prev_call
                 if cur is not None:
                     cur["turns"] += 1; cur["cost"] += c
@@ -267,6 +308,7 @@ for cfg in dirs:
         beh[k][0] += 1; beh[k][1] += cur["turns"]; beh[k][2] += cur["cost"]
     total = total or 1.0
     print("main-session models:", dict(models.most_common(4)))
+    print(f"prompts: {len(opened)}, compactions: {compactions}")
     print("\nwork type            prompts   turns   share of cost")
     for k, v in sorted(beh.items(), key=lambda kv: -kv[1][2]):
         print(f"  {k:28} {v[0]:5} {v[1]:7}   {v[2] / total:6.1%}")

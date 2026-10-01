@@ -39,7 +39,7 @@ def tail_records(path):
         size = f.tell()
         f.seek(max(0, size - TAIL_BYTES))
         data = f.read().decode("utf-8", errors="replace")
-    lines = data.splitlines()
+    lines = data.split("\n")  # not splitlines(): JSON records may hold U+2028/U+2029 literally
     if size > TAIL_BYTES:
         lines = lines[1:]  # first line is probably cut mid-record
     for line in lines:
@@ -49,13 +49,18 @@ def tail_records(path):
             continue
 
 
-def is_typed_prompt(d):
-    if d.get("type") != "user" or d.get("isSidechain") or d.get("isMeta"):
-        return False
+def prompt_text(d):
+    """The typed text of a user record, or None when it is not a typed prompt."""
+    if d.get("type") != "user" or d.get("isSidechain") or d.get("isMeta") or d.get("isCompactSummary"):
+        return None
     c = d.get("message", {}).get("content")
+    if isinstance(c, str):
+        return c
     if isinstance(c, list):
-        return not any(isinstance(x, dict) and x.get("type") == "tool_result" for x in c)
-    return isinstance(c, str)
+        if any(isinstance(x, dict) and x.get("type") == "tool_result" for x in c):
+            return None
+        return "\n".join(x.get("text", "") for x in c if isinstance(x, dict) and x.get("type") == "text")
+    return None
 
 
 def main():
@@ -71,12 +76,16 @@ def main():
 
     # context size after each main-session API call, split at typed prompts
     now_ctx = 0
-    marks = []  # context size at each typed prompt
+    marks = []  # (context size, prompt text) at each typed prompt
     last_call_ts = None
     one_hour_cache = False
     for d in tail_records(path):
-        if is_typed_prompt(d):
-            marks.append(now_ctx)
+        if d.get("isCompactSummary"):
+            now_ctx, marks, last_call_ts = 0, [], None  # the context was just rebuilt
+            continue
+        text = prompt_text(d)
+        if text is not None:
+            marks.append((now_ctx, text.strip()))
         elif d.get("type") == "assistant" and not d.get("isSidechain"):
             m = d.get("message", {})
             u = m.get("usage")
@@ -86,15 +95,21 @@ def main():
             if (u.get("cache_creation") or {}).get("ephemeral_1h_input_tokens"):
                 one_hour_cache = True
             if d.get("timestamp"):
-                last_call_ts = datetime.fromisoformat(d["timestamp"].replace("Z", "+00:00")).timestamp()
+                try:
+                    last_call_ts = datetime.fromisoformat(d["timestamp"].replace("Z", "+00:00")).timestamp()
+                except (ValueError, TypeError):
+                    pass
 
     if now_ctx < threshold or last_call_ts is None:
         return
 
-    # the prompt being submitted may or may not be in the transcript yet
-    if marks and marks[-1] == now_ctx:
+    # The prompt being submitted may or may not be in the transcript yet. Only its own record
+    # is dropped — recognised by text — so an earlier prompt that got no answer still counts as
+    # the last time the user saw the size.
+    current = str(payload.get("prompt") or "").strip()
+    if marks and marks[-1][0] == now_ctx and (not current or marks[-1][1] == current):
         marks.pop()
-    before_ctx = marks[-1] if marks else 0
+    before_ctx = marks[-1][0] if marks else 0
 
     ttl = env_int("MODEL_ROUTER_CACHE_TTL", 3600 if one_hour_cache else 300)
     idle = time.time() - last_call_ts
@@ -116,5 +131,6 @@ if __name__ == "__main__":
     try:
         main()
     except Exception:
-        pass
+        if os.environ.get("MODEL_ROUTER_DEBUG"):
+            raise
     sys.exit(0)

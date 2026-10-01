@@ -1,25 +1,23 @@
 #!/usr/bin/env python3
-"""PostToolUse / UserPromptSubmit hook: nudge the main session to delegate a long run of commands.
+"""PostToolBatch / UserPromptSubmit hook: nudge the main session to delegate a long run of commands.
 
 A main session that keeps running Bash and MCP calls itself pays for every one of them
 over its whole context. This hook counts those calls since the last user prompt and, when
-the count reaches a threshold, adds a short reminder to the model's context. It never
-blocks and never makes a permission decision.
+the count reaches a threshold, adds a short reminder to the model's context that names
+the commands it saw. It never blocks and never makes a permission decision.
 
-  count   (PostToolUse, matcher Bash|mcp__.*)  increment the per-session counter; add the
-          reminder at exactly NUDGE_AT calls, and a shorter, firmer one at NUDGE_AT + 5
-  reset   (UserPromptSubmit)                   set the counter back to 0
+  count   (PostToolBatch)        add the batch's Bash/MCP calls to the per-session counter;
+                                 add the reminder when the count crosses NUDGE_AT, and a
+                                 shorter, firmer one when it crosses NUDGE_AT + 5
+  reset   (UserPromptSubmit)     set the counter back to 0
 
-State lives in <tempdir>/model-router/ops-<session_id>. A payload with a non-empty
-`agent_id` (a subagent) is neither counted nor nudged.
+PostToolBatch fires once per batch after every call in it has resolved, failed ones
+included, so parallel tool calls cannot race the counter the way per-call PostToolUse
+hooks do. State lives in <config dir>/model-router/sessions/<session_id>.ops, next to the
+session markers, and is pruned with them. A payload with an `agent_id` (a subagent) is
+neither counted nor nudged: tool hooks carry it inside subagents (verified in Claude Code 2.1.286).
 
-Verified in the installed Claude Code 2.1.284 bundle: PostToolUse supports
-hookSpecificOutput.additionalContext. agent_id / agent_type are documented for
-SubagentStart input, but could NOT be confirmed for tool-call hooks made inside a
-subagent. So the hook skips when agent_id is present AND the text is phrased "If you are
-the main session", so a subagent that does receive it knows to ignore it.
-
-Local-only and fail-open: any error exits 0 with no output.
+Local-only and fail-open: any error exits 0 with no output (MODEL_ROUTER_DEBUG=1 re-raises it).
 
 Tunable (environment):
   MODEL_ROUTER_NUDGE_AT   calls at which the first reminder fires (default 3; 0 disables);
@@ -29,23 +27,18 @@ import json
 import os
 import re
 import sys
-import tempfile
+
+from router_context import session_marker
 
 FIRST = (
-    "Model routing: if you are the main session, this is command/MCP call {n} for this prompt. "
+    "Model routing: {n} command/MCP calls in the main session for this prompt ({seen}). "
     "If more are coming, hand the rest to model-router:operator (known commands) or "
-    "model-router:senior-operator (diagnosis) in the background instead of continuing here. "
-    "Subagents: ignore this."
+    "model-router:senior-operator (diagnosis) in the background instead of continuing here."
 )
 SECOND = (
-    "If you are the main session: {n} command/MCP calls for this prompt. "
+    "Model routing: {n} command/MCP calls in the main session for this prompt ({seen}). "
     "Stop; delegate the rest to model-router:operator or model-router:senior-operator."
 )
-
-
-def state_path(session_id):
-    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", session_id)
-    return os.path.join(tempfile.gettempdir(), "model-router", "ops-" + safe)
 
 
 def read_count(path):
@@ -57,9 +50,8 @@ def read_count(path):
 
 
 def write_count(path, n):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
-        f.write(str(n))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(str(n))
 
 
 def nudge_at():
@@ -69,13 +61,28 @@ def nudge_at():
         return 3
 
 
+def is_ops(call):
+    name = str(call.get("tool_name") or "")
+    return name == "Bash" or name.startswith("mcp__")
+
+
+def label(call):
+    """A short name for one call: the command's first words, or the MCP tool name."""
+    name = str(call.get("tool_name") or "")
+    if name != "Bash":
+        return name
+    cmd = re.sub(r"\s+", " ", str((call.get("tool_input") or {}).get("command") or "")).strip()
+    return " ".join(cmd.split(" ")[:3])[:40] or "Bash"
+
+
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
     payload = json.load(sys.stdin)
-    session_id = str(payload.get("session_id") or "")
-    if not session_id or payload.get("agent_id"):
+    if payload.get("agent_id"):
         return
-    path = state_path(session_id)
+    path = session_marker(str(payload.get("session_id") or ""), "ops")
+    if path is None:
+        return
     if mode == "reset":
         write_count(path, 0)
         return
@@ -84,20 +91,27 @@ def main():
     at = nudge_at()
     if at <= 0:
         return
-    n = read_count(path) + 1
+    calls = [c for c in payload.get("tool_calls") or [] if isinstance(c, dict) and is_ops(c)]
+    if not calls:
+        return
+    before = read_count(path)
+    n = before + len(calls)
     write_count(path, n)
-    if n == at:
-        text = FIRST.format(n=n)
-    elif n == at + 5:
-        text = SECOND.format(n=n)
+    seen = ", ".join(dict.fromkeys(label(c) for c in calls[-3:]))
+    if before < at <= n:
+        text = FIRST.format(n=n, seen=seen)
+    elif before < at + 5 <= n:
+        text = SECOND.format(n=n, seen=seen)
     else:
         return
-    json.dump({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": text}}, sys.stdout)
+    event = payload.get("hook_event_name") or "PostToolBatch"
+    json.dump({"hookSpecificOutput": {"hookEventName": event, "additionalContext": text}}, sys.stdout)
 
 
 if __name__ == "__main__":
     try:
         main()
     except Exception:
-        pass
+        if os.environ.get("MODEL_ROUTER_DEBUG"):
+            raise
     sys.exit(0)

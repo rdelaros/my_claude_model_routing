@@ -1,7 +1,7 @@
 {
   "name": "model-router",
-  "description": "Automatic model routing — thinking stays in the main session, building goes to parallel sonnet subagents, operational work goes to a haiku subagent.",
-  "version": "1.8.1",
+  "description": "Automatic model routing — thinking stays in the main session; building goes to parallel sonnet builders (a coordinator splits big plans); git, pipelines, cloud and infra commands go to a background haiku operator; diagnosis goes to a sonnet senior-operator.",
+  "version": "1.9.0",
   "author": {
     "name": "Ramon de la Rosa"
   },
