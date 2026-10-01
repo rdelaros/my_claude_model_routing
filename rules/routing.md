@@ -11,6 +11,7 @@ The user speaks naturally and never asks for delegation, parallel runs or confir
 | Diagnosis | `model-router:senior-operator` (`{senior_operator_model}`) | why a pipeline, plan or job failed; multi-step investigations; conflicts; anything the operator got wrong |
 
 ### Classify the work
+- The user often explains in several short messages. Context, a description, a half-finished thought or a question is Thinking: answer in a few lines, ask at most one question, and start no edits or agents. Work starts only on a clear ask ("do it", "run it", an approval of what you proposed).
 - An approval ("yes", "ok", "continue") takes the tier of what was just proposed.
 - Will edit files → Building. Will run commands, MCP calls or web fetches → Operational. Needs unseen files or output → Reading. Answerable from what you know → Thinking.
 - A bare URL, ticket key or PR/MR: one short lookup runs here; fetching its diff, comments or logs → operator.

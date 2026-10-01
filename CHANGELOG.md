@@ -38,6 +38,10 @@ Verified against Claude Code 2.1.286; the hooks now use events and fields that e
 ### Tools
 - `before_after.py` and `session_report.py` count prompts with pasted content (including image-only ones) and slash commands, ignore compaction summaries (and count them), price 1-hour cache writes at their list ratio using the authoritative total, count each tool call once even when its record is repeated, and no longer crash on string-content assistant records or malformed timestamps; `before_after.py` counts foreground agent results as reports and ignores background-launch acknowledgements.
 
+### Token footprint
+- The rules, the four agents and the skill description were rewritten to the published prompt-writing guidance and cut to roughly 60 percent of their size with every rule kept: about 1,300 tokens of rules and 160 of agent descriptions per main-session call instead of 1,900 and 380; operator turns carry 1,200 instruction tokens instead of 2,000.
+- The rules open with the premise that the user speaks naturally and the main session alone decides delegation, parallel runs and confirmations, and they treat an explanation or half-finished thought as conversation: answer briefly, ask at most one question, start no work until there is a clear ask.
+
 ### Tests
 - `tests/test_hooks.py` runs every hook as a subprocess against a temporary config directory (with `MODEL_ROUTER_DEBUG=1`, so a crash fails instead of passing silently), `tests/test_setup.py` runs the setup script against a fake `claude`, and `tests/test_tools.py` runs the measurement scripts on a synthetic transcript; a GitHub Actions workflow runs them on Linux and Windows.
 
