@@ -50,7 +50,7 @@ from pathlib import Path
 
 ALIASES = ("haiku", "sonnet", "opus", "fable")  # what the Agent tool's `model` parameter accepts, cheapest first
 TIERS = {"builder": "sonnet", "operator": "haiku", "senior_operator": "sonnet"}
-ALIAS_ENV = {a: 'ANTHROPIC_DEFAULT_{0}_MODEL'.format(a.upper()) for a in ALIASES}
+ALIAS_ENV = {a: f"ANTHROPIC_DEFAULT_{a.upper()}_MODEL" for a in ALIASES}
 FORK_VAR, SUBAGENT_VAR, FORCE_VAR = "CLAUDE_CODE_FORK_SUBAGENT", "CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL_FORCE"
 STALE_SOURCE = "exported by the running session (stale; restart to clear)"
 CHECK_TIMEOUT = 120  # per model; the pool runs CHECK_WORKERS at a time
@@ -143,7 +143,7 @@ def settings_env(name):
     for label, path, env in reversed(env_layers()):
         if env.get(name) not in (None, ""):
             value = env[name]
-            return (json.dumps(value) if isinstance(value, bool) else str(value)), '{0} {1}'.format(label, path)
+            return (json.dumps(value) if isinstance(value, bool) else str(value)), f"{label} {path}"
     return None, None
 
 
@@ -177,7 +177,7 @@ def shell_override_note(name):
     value, src = settings_env(name)
     if not shell or value is None or (in_session() and shell == value):  # a session exports the files' own value: not an override
         return None
-    return '{0}={1} ({2}) is overridden by {3}={4} in the {5}: Claude Code applies the settings env over the launch environment.'.format(name, shell, shell_source(name), name, value, src)
+    return f"{name}={shell} ({shell_source(name)}) is overridden by {name}={value} in the {src}: Claude Code applies the settings env over the launch environment."
 
 
 def effective_env(name):
@@ -188,14 +188,14 @@ def top_setting(key):
     """(value, source) of a top-level settings key from the highest file that sets it."""
     for label, path, data in reversed(settings_layers()):
         if data.get(key) not in (None, ""):
-            return data[key], '{0} {1}'.format(label, path)
+            return data[key], f"{label} {path}"
     return None, None
 
 
 def higher_env_sources(name, above="user settings"):
     """Settings layers above `above` that also set `name` (they win over what `map`/`forks` write); never the shell, which loses to every file."""
     labels = [label for label, _ in settings_files()]
-    return ['{0} {1}'.format(label, path) for label, path, env in env_layers() if labels.index(label) > labels.index(above) and env.get(name) not in (None, "")]
+    return [f"{label} {path}" for label, path, env in env_layers() if labels.index(label) > labels.index(above) and env.get(name) not in (None, "")]
 
 
 def provider():
@@ -210,11 +210,11 @@ def main_model_line():
     model, src = top_setting("model")
     env_model, env_src = env_setting("ANTHROPIC_MODEL")
     if model and env_model:
-        return '{0}   ("model" in {1}; ANTHROPIC_MODEL={2} is also set in {3})'.format(model, src, env_model, env_src)
+        return f'{model}   ("model" in {src}; ANTHROPIC_MODEL={env_model} is also set in {env_src})'
     if model:
-        return '{0}   ("model" in {1})'.format(model, src)
+        return f'{model}   ("model" in {src})'
     if env_model:
-        return '{0}   (ANTHROPIC_MODEL from {1})'.format(env_model, env_src)
+        return f"{env_model}   (ANTHROPIC_MODEL from {env_src})"
     return "(default)"
 
 
@@ -226,10 +226,10 @@ def fork_gate():
                       "and puts run_in_background back on the Agent tool")
     word = value.strip().lower()
     if word in ("0", "false", "no", "off"):
-        return "off", '{0}={1} ({2}): no fork agent type; the Agent tool has run_in_background again, launches still default to the background'.format(FORK_VAR, value, src)
+        return "off", f"{FORK_VAR}={value} ({src}): no fork agent type; the Agent tool has run_in_background again, launches still default to the background"
     if word in ("1", "true", "yes", "on"):
-        return "on", '{0}={1} ({2})'.format(FORK_VAR, value, src)
-    return "on", '{0}={1} ({2}) is not a recognised boolean; Claude Code ignores it (default on)'.format(FORK_VAR, value, src)
+        return "on", f"{FORK_VAR}={value} ({src})"
+    return "on", f"{FORK_VAR}={value} ({src}) is not a recognised boolean; Claude Code ignores it (default on)"
 
 
 def subagent_model_lines():
@@ -238,38 +238,40 @@ def subagent_model_lines():
     value, src = env_setting(FORCE_VAR)
     if value:
         forced = True
-        lines.append("WARNING    : {0}={1} ({2}) forces every subagent onto that model: the Agent tool ignores the model parameter and the agents' frontmatter, so tier routing has no effect until it is unset.".format(FORCE_VAR, value, src))
+        lines.append(f"WARNING    : {FORCE_VAR}={value} ({src}) forces every subagent onto that model: the Agent tool ignores the "
+                     "model parameter and the agents' frontmatter, so tier routing has no effect until it is unset.")
     value, src = env_setting(SUBAGENT_VAR)
     if value:
-        lines.append("note       : {0}={1} ({2}) is only the default for agents that name no model; the router's agents all do and its hook sets one on every launch, so routing is unaffected.".format(SUBAGENT_VAR, value, src))
+        lines.append(f"note       : {SUBAGENT_VAR}={value} ({src}) is only the default for agents that name no model; "
+                     "the router's agents all do and its hook sets one on every launch, so routing is unaffected.")
     return lines, forced
 
 
 def cmd_show(_args):
-    print('config dir : {0}'.format(config_dir()))
-    print('provider   : {0}'.format(provider()))
-    print('main model : {0}'.format(main_model_line()))
+    print(f"config dir : {config_dir()}")
+    print(f"provider   : {provider()}")
+    print(f"main model : {main_model_line()}")
     print("tiers      :")
     invalid = invalid_tiers()
     for tier, model in tier_models().items():
         if tier in invalid:
-            print('  {0:15} -> {1}  (default; stored value {2!r} is INVALID and ignored)'.format(tier, model, invalid[tier]))
+            print(f"  {tier:15} -> {model}  (default; stored value {invalid[tier]!r} is INVALID and ignored)")
         else:
-            print('  {0:15} -> {1}{2}'.format(tier, model, '' if tier in stored_tiers() else '  (default)'))
+            print(f"  {tier:15} -> {model}{'' if tier in stored_tiers() else '  (default)'}")
     print("alias maps :")
     mapped = {alias: env_setting(var) for alias, var in ALIAS_ENV.items() if effective_env(var)}
     for alias, (value, src) in mapped.items():
-        print('  {0:9} -> {1}   ({2}, {3})'.format(alias, value, ALIAS_ENV[alias], src))
+        print(f"  {alias:9} -> {value}   ({ALIAS_ENV[alias]}, {src})")
     if not mapped:
         print("  (none -- each alias resolves to Claude Code's default model id)")
     state, detail = fork_gate()
-    print('fork gate  : {0}  ({1})'.format(state, detail))
+    print(f"fork gate  : {state}  ({detail})")
     lines, _ = subagent_model_lines()
     for line in lines:
         print(line)
     watched = list(ALIAS_ENV.values()) + [FORK_VAR, SUBAGENT_VAR, FORCE_VAR]
     for note in filter(None, map(shell_override_note, watched)):
-        print('note       : {0}'.format(note))
+        print(f"note       : {note}")
     if any("settings" in (env_setting(v)[1] or "") for v in watched):
         print("note       : a --settings file or JSON passed on the command line overrides the user, project and local files (not managed settings) and is not visible here.")
     return 0
@@ -315,24 +317,24 @@ def check_one(model):
             del env[key]
     started = time.time()
     try:
-        proc = subprocess.run(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=CHECK_TIMEOUT, env=env)
+        proc = subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=CHECK_TIMEOUT, env=env)
     except FileNotFoundError:
         return {"model": model, "status": "FAIL", "detail": "`claude` not found on PATH"}
     except OSError as exc:
-        return {"model": model, "status": "FAIL", "detail": 'could not run claude: {0}'.format(exc)[:200]}
+        return {"model": model, "status": "FAIL", "detail": f"could not run claude: {exc}"[:200]}
     except subprocess.TimeoutExpired:
-        return {"model": model, "status": "FAIL", "detail": 'no answer within {0}s'.format(CHECK_TIMEOUT)}
+        return {"model": model, "status": "FAIL", "detail": f"no answer within {CHECK_TIMEOUT}s"}
     seconds = time.time() - started
 
     result = result_record(proc.stdout)
     if result is None:
-        detail = last_line(proc.stderr) or last_line(proc.stdout) or 'exit code {0}'.format(proc.returncode)
+        detail = last_line(proc.stderr) or last_line(proc.stdout) or f"exit code {proc.returncode}"
         return {"model": model, "status": "FAIL", "detail": detail[:200]}
     out = {"model": model, "seconds": round(seconds, 1), "cost_usd": result.get("total_cost_usd")}
     if result.get("is_error") or result.get("subtype") != "success":
         detail = str(result.get("result") or result.get("subtype") or "error")
         if result.get("api_error_status"):
-            detail = 'HTTP {0}: {1}'.format(result['api_error_status'], detail)
+            detail = f"HTTP {result['api_error_status']}: {detail}"
         return {**out, "status": "FAIL", "detail": detail[:200]}
 
     # Claude Code also makes small helper calls on its fast model; the model that answered is
@@ -347,12 +349,12 @@ def check_one(model):
     got = family(answered_by)
     if wanted and got and got != wanted:
         out["status"] = "FALLBACK"
-        out["detail"] = 'asked for {0}, but {1} answered'.format(wanted, answered_by)
+        out["detail"] = f"asked for {wanted}, but {answered_by} answered"
     return out
 
 
 def money(value):
-    return '${0:.4f}'.format(value) if isinstance(value, (int, float)) else "-"
+    return f"${value:.4f}" if isinstance(value, (int, float)) else "-"
 
 
 def tier_summary(results):
@@ -362,20 +364,20 @@ def tier_summary(results):
     for tier, alias in tier_models().items():
         state = status.get(alias, "not checked")
         all_ok = all_ok and state == "OK"
-        line = '  {0:15} {1:7} {2}'.format(tier, alias, state)
+        line = f"  {tier:15} {alias:7} {state}"
         if state != "OK":
             better = next((a for a in ALIASES[ALIASES.index(alias):] if status.get(a) == "OK"), None)
             if better:
-                line += '  -> cheapest alias at or above {0} that answered OK: {1}'.format(alias, better)
-                fixes.append('{0}={1}'.format(tier, better))
+                line += f"  -> cheapest alias at or above {alias} that answered OK: {better}"
+                fixes.append(f"{tier}={better}")
             else:
                 unprobed = [a for a in ALIASES[ALIASES.index(alias):] if a not in status]
                 cheaper = [a for a in ALIASES[:ALIASES.index(alias)] if status.get(a) == "OK"]
-                line += "  -> no alias at or above it answered OK" + ('; try `check --all` (not probed: {0})'.format(', '.join(unprobed)) if unprobed else "; map it to a working deployment")
-                line += '; cheaper and OK: {0}'.format(', '.join(cheaper)) if cheaper else ""
+                line += "  -> no alias at or above it answered OK" + (f"; try `check --all` (not probed: {', '.join(unprobed)})" if unprobed else "; map it to a working deployment")
+                line += f"; cheaper and OK: {', '.join(cheaper)}" if cheaper else ""
         lines.append(line)
     if fixes:
-        lines.append('to apply: python3 {0} set {1}'.format(Path(__file__).resolve(), ' '.join(fixes)))
+        lines.append(f"to apply: python3 {Path(__file__).resolve()} set {' '.join(fixes)}")
     return lines, all_ok
 
 
@@ -388,15 +390,16 @@ def cmd_check(args):
     aliases = ALIASES if everything else ("haiku", "sonnet")
     models = list(dict.fromkeys([a for a in ALIASES if a in list(tier_models().values()) + list(aliases)] + named))
     rounds = -(-len(models) // CHECK_WORKERS)
-    print('provider: {0}   config dir: {1}'.format(provider(), config_dir()))
-    print('checking {0} -- one minimal request each, {1} at a time, up to {2}s per model (worst case about {3}s)\n'.format(', '.join(models), CHECK_WORKERS, CHECK_TIMEOUT, rounds * CHECK_TIMEOUT))
+    print(f"provider: {provider()}   config dir: {config_dir()}")
+    print(f"checking {', '.join(models)} -- one minimal request each, {CHECK_WORKERS} at a time, up to {CHECK_TIMEOUT}s per model "
+          f"(worst case about {rounds * CHECK_TIMEOUT}s)\n")
     with ThreadPoolExecutor(max_workers=CHECK_WORKERS) as pool:
         results = list(pool.map(check_one, models))
-    print('{0:28} {1:9} {2:34} {3:>6} {4:>8}  detail'.format('requested', 'status', 'answered by', 'time', 'cost'))
+    print(f"{'requested':28} {'status':9} {'answered by':34} {'time':>6} {'cost':>8}  detail")
     for r in results:
-        print('{0:28} {1:9} {2:34} {3:>6} {4:>8}  {5}'.format(r['model'], r['status'], r.get('answered_by', '-'), str(r['seconds']) + 's' if 'seconds' in r else '-', money(r.get('cost_usd')), r.get('detail', '')))
+        print(f"{r['model']:28} {r['status']:9} {r.get('answered_by', '-'):34} {(str(r['seconds']) + 's') if 'seconds' in r else '-':>6} {money(r.get('cost_usd')):>8}  {r.get('detail', '')}")
     total = sum(r["cost_usd"] for r in results if isinstance(r.get("cost_usd"), (int, float)))
-    print('{0:28} {1:9} {2:34} {3:>6} {4:>8}'.format('total', '', '', '', money(total)))
+    print(f"{'total':28} {'':9} {'':34} {'':>6} {money(total):>8}")
     lines, all_ok = tier_summary(results)
     print("\ntiers:")
     print("\n".join(lines))
@@ -418,7 +421,7 @@ def cmd_set(args):
     for arg in args:
         tier, _, model = arg.partition("=")
         if tier not in TIERS or model not in ALIASES:
-            print('invalid: {0!r} -- use <tier>=<alias>, tier one of {1}, alias one of {2}'.format(arg, ', '.join(TIERS), ', '.join(ALIASES)), file=sys.stderr)
+            print(f"invalid: {arg!r} -- use <tier>=<alias>, tier one of {', '.join(TIERS)}, alias one of {', '.join(ALIASES)}", file=sys.stderr)
             return 2
         chosen[tier] = model
     if not chosen:
@@ -426,36 +429,36 @@ def cmd_set(args):
         return 2
     saved = stored_tiers()
     saved.update(chosen)
-    print('saved {0} -> {1}\nTakes effect in sessions started from now on.'.format(chosen, write_router_config(saved)))
+    print(f"saved {chosen} -> {write_router_config(saved)}\nTakes effect in sessions started from now on.")
     return 0
 
 
 def cmd_reset(args):
     bad = [a for a in args if a not in TIERS]
     if bad:
-        print('unknown tier(s) {0}; one of {1}'.format(', '.join(bad), ', '.join(TIERS)), file=sys.stderr)
+        print(f"unknown tier(s) {', '.join(bad)}; one of {', '.join(TIERS)}", file=sys.stderr)
         return 2
     saved = stored_tiers()
     removed = {tier: saved.pop(tier) for tier in (args or list(TIERS)) if tier in saved}
     if not removed:
-        print('nothing stored for {0}; the defaults already apply ({1})'.format(', '.join(args or TIERS), TIERS))
+        print(f"nothing stored for {', '.join(args or TIERS)}; the defaults already apply ({TIERS})")
         return 0
     write_router_config(saved)
-    print('removed {0} from {1}; defaults apply: '.format(removed, router_config_path()) +
-          ", ".join('{0}={1}'.format(t, TIERS[t]) for t in removed) + "\nTakes effect in sessions started from now on.")
+    print(f"removed {removed} from {router_config_path()}; defaults apply: " +
+          ", ".join(f"{t}={TIERS[t]}" for t in removed) + "\nTakes effect in sessions started from now on.")
     return 0
 
 
 def backup_path(path):
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S.%f")
-    candidate, n = path.with_name('{0}.bak-{1}'.format(path.name, stamp)), 1
+    candidate, n = path.with_name(f"{path.name}.bak-{stamp}"), 1
     while candidate.exists():
-        candidate, n = path.with_name('{0}.bak-{1}-{2}'.format(path.name, stamp, n)), n + 1
+        candidate, n = path.with_name(f"{path.name}.bak-{stamp}-{n}"), n + 1
     return candidate
 
 
 def atomic_write(path, text):
-    tmp = path.with_name('.{0}.{1}.tmp'.format(path.name, os.getpid()))
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     try:
         tmp.write_text(text, encoding="utf-8")
         if path.exists():
@@ -472,24 +475,24 @@ def write_settings_env(key, value):
     path = config_dir() / "settings.json"
     settings = load_json(path, None) if path.exists() else {}
     if settings is None:
-        print('{0} exists but could not be parsed; not touching it'.format(path), file=sys.stderr)
+        print(f"{path} exists but could not be parsed; not touching it", file=sys.stderr)
         return 1
     if not isinstance(settings, dict):
-        print('{0} is not a JSON object; not touching it'.format(path), file=sys.stderr)
+        print(f"{path} is not a JSON object; not touching it", file=sys.stderr)
         return 1
     env = settings.get("env")
     env = {} if env is None else env
     if not isinstance(env, dict):
-        print('{0}: "env" is not an object; not touching it'.format(path), file=sys.stderr)
+        print(f'{path}: "env" is not an object; not touching it', file=sys.stderr)
         return 1
     others = higher_env_sources(key)
     if (value is None and key not in env) or (value is not None and env.get(key) == value):
-        print('{0} {1} {2}; nothing to change'.format(key, 'is not set in' if value is None else 'already = ' + value + ' in', path))
+        print(f"{key} {'is not set in' if value is None else 'already = ' + value + ' in'} {path}; nothing to change")
     else:
         if path.exists():
             backup = backup_path(path)
             shutil.copy2(path, backup)
-            print('backup: {0}'.format(backup))
+            print(f"backup: {backup}")
         env = dict(env)
         if value is None:
             env.pop(key)
@@ -502,18 +505,18 @@ def write_settings_env(key, value):
         path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write(path, json.dumps(settings, indent=2, ensure_ascii=False) + "\n")
         _LAYERS = None
-        print('{0} {1} {2}\nTakes effect in sessions started from now on.'.format(key, 'removed from' if value is None else '= ' + value + ' in', path))
+        print(f"{key} {'removed from' if value is None else '= ' + value + ' in'} {path}\nTakes effect in sessions started from now on.")
     for src in others:
-        print('NOTE: {0} is also set in the {1}, which overrides {2}.'.format(key, src, path))
+        print(f"NOTE: {key} is also set in the {src}, which overrides {path}.")
     note = shell_override_note(key)
     if note:
-        print('NOTE: {0}'.format(note))
+        print(f"NOTE: {note}")
     return 0
 
 
 def write_alias_map(alias, value):
     if alias not in ALIASES:
-        print('unknown alias {0!r}; one of {1}'.format(alias, ', '.join(ALIASES)), file=sys.stderr)
+        print(f"unknown alias {alias!r}; one of {', '.join(ALIASES)}", file=sys.stderr)
         return 2
     return write_settings_env(ALIAS_ENV[alias], value)
 
@@ -524,7 +527,7 @@ def cmd_map(args):
         return 2
     alias, _, value = args[0].partition("=")
     if not value.strip():
-        print('usage: models.py map <alias>=<model-id> -- the value is empty; `unmap {0}` removes a mapping'.format(alias), file=sys.stderr)
+        print(f"usage: models.py map <alias>=<model-id> -- the value is empty; `unmap {alias}` removes a mapping", file=sys.stderr)
         return 2
     return write_alias_map(alias, value.strip())
 
@@ -567,10 +570,10 @@ def claude_version():
     if not exe:
         return None, None
     try:
-        proc = subprocess.run([exe, "--version"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=10)
+        proc = subprocess.run([exe, "--version"], stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10)
         return exe, (proc.stdout or proc.stderr).strip().splitlines()[0] if (proc.stdout or proc.stderr).strip() else "(no version output)"
     except (OSError, subprocess.SubprocessError) as exc:
-        return exe, 'could not run --version: {0}'.format(exc)
+        return exe, f"could not run --version: {exc}"
 
 
 def plugin_enabled():
@@ -580,7 +583,7 @@ def plugin_enabled():
         plugins = data.get("enabledPlugins")
         for key, value in (plugins.items() if isinstance(plugins, dict) else ()):
             if key.startswith("model-router@"):
-                found = (key, value, '{0} {1}'.format(label, path))
+                found = (key, value, f"{label} {path}")
     return found
 
 
@@ -588,75 +591,75 @@ def cmd_doctor(_args):
     """Read-only self-check. It reads the settings files on disk, so it cannot see a --settings file/JSON or a policy layer passed on the command line."""
     problems = []
     root = plugin_root()
-    print('config dir     : {0}'.format(config_dir()))
-    print('python         : {0} ({1})'.format(sys.version.split()[0], sys.executable))
-    if sys.version_info < (3, 5):
-        problems.append("python is older than 3.5; the hooks need Python 3.5 or later")
-    print('plugin root    : {0}  ({1})'.format(root, 'CLAUDE_PLUGIN_ROOT' if os.environ.get('CLAUDE_PLUGIN_ROOT') else 'from this script location'))
+    print(f"config dir     : {config_dir()}")
+    print(f"python         : {sys.version.split()[0]} ({sys.executable})")
+    if sys.version_info < (3, 9):
+        problems.append("python is older than 3.9; the hooks need 3.9+")
+    print(f"plugin root    : {root}  ({'CLAUDE_PLUGIN_ROOT' if os.environ.get('CLAUDE_PLUGIN_ROOT') else 'from this script location'})")
     rules = root / "rules" / "routing.md"
     if rules.is_file():
-        print('rules file     : {0} ({1:,} chars)'.format(rules, len(rules.read_text(encoding='utf-8', errors='replace'))))
+        print(f"rules file     : {rules} ({len(rules.read_text(encoding='utf-8', errors='replace')):,} chars)")
     else:
-        print('rules file     : MISSING -- {0}'.format(rules))
+        print(f"rules file     : MISSING -- {rules}")
         problems.append("rules/routing.md is missing; nothing is injected into sessions")
     sys.path.insert(0, str(root / "hooks"))
     try:
         import router_context as rc
         cap = getattr(rc, "MAX_CONTEXT_CHARS", None)
-        cap_text = "Claude Code caps a hook's context at 8,000 chars; the hooks keep under {0:,}".format(cap) if isinstance(cap, int) else "Claude Code caps a hook's context at 8,000 chars"
+        cap_text = f"Claude Code caps a hook's context at 8,000 chars; the hooks keep under {cap:,}" if isinstance(cap, int) else "Claude Code caps a hook's context at 8,000 chars"
         try:
             rules_text = rc.build_rules()
-            print('injected rules : {0:,} chars ({1}'.format(len(rules_text), cap_text) + ("; AT the cap, the tail may be cut" if isinstance(cap, int) and len(rules_text) >= cap else "") + ")")
+            print(f"injected rules : {len(rules_text):,} chars ({cap_text}" + ("; AT the cap, the tail may be cut" if isinstance(cap, int) and len(rules_text) >= cap else "") + ")")
         except Exception as exc:
-            print('injected rules : build_rules() failed: {0}'.format(exc))
-            problems.append('build_rules() failed: {0}'.format(exc))
+            print(f"injected rules : build_rules() failed: {exc}")
+            problems.append(f"build_rules() failed: {exc}")
         try:
-            print('corrections    : {0:,} chars injected'.format(len(rc.build_corrections())))
+            print(f"corrections    : {len(rc.build_corrections()):,} chars injected")
         except Exception as exc:
-            print('corrections    : build_corrections() failed: {0}'.format(exc))
+            print(f"corrections    : build_corrections() failed: {exc}")
         feedback = rc.feedback_path()
         rows = len(rc.correction_rows(feedback.read_text(encoding="utf-8", errors="replace"))) if feedback.is_file() else None
-        print('feedback file  : {0} -- {1}'.format(feedback, 'not created yet' if rows is None else '{0} correction row(s)'.format(rows)))
+        print(f"feedback file  : {feedback} -- {'not created yet' if rows is None else f'{rows} correction row(s)'}")
     except Exception as exc:
-        print('hooks          : cannot import hooks/router_context.py from {0}: {1}'.format(root / 'hooks', exc))
-        problems.append('hooks/router_context.py could not be imported ({0}); the hooks cannot inject the rules'.format(exc))
-    print('session markers: {0} in {1}'.format(count_files(router_dir() / 'sessions'), router_dir() / 'sessions'))
-    print('reports        : {0} in {1}'.format(count_files(router_dir() / 'reports'), router_dir() / 'reports'))
+        print(f"hooks          : cannot import hooks/router_context.py from {root / 'hooks'}: {exc}")
+        problems.append(f"hooks/router_context.py could not be imported ({exc}); the hooks cannot inject the rules")
+    print(f"session markers: {count_files(router_dir() / 'sessions')} in {router_dir() / 'sessions'}")
+    print(f"reports        : {count_files(router_dir() / 'reports')} in {router_dir() / 'reports'}")
     invalid = invalid_tiers()
     parts = []
     for tier, model in tier_models().items():
-        parts.append('{0}={1}'.format(tier, model) + (' (stored {0!r} INVALID, default used)'.format(invalid[tier]) if tier in invalid else ("" if tier in stored_tiers() else " (default)")))
+        parts.append(f"{tier}={model}" + (f" (stored {invalid[tier]!r} INVALID, default used)" if tier in invalid else ("" if tier in stored_tiers() else " (default)")))
         if tier in invalid:
-            problems.append('{0}: {1}={2!r} is not one of {3}; run `set` or `reset`'.format(router_config_path(), tier, invalid[tier], ', '.join(ALIASES)))
-    print('tier models    : {0}'.format(', '.join(parts)))
-    mapped = ['{0} -> {1} ({2})'.format(alias, env_setting(var)[0], env_setting(var)[1]) for alias, var in ALIAS_ENV.items() if effective_env(var)]
-    print('alias maps     : {0}'.format('; '.join(mapped) if mapped else 'none'))
+            problems.append(f"{router_config_path()}: {tier}={invalid[tier]!r} is not one of {', '.join(ALIASES)}; run `set` or `reset`")
+    print(f"tier models    : {', '.join(parts)}")
+    mapped = [f"{alias} -> {env_setting(var)[0]} ({env_setting(var)[1]})" for alias, var in ALIAS_ENV.items() if effective_env(var)]
+    print(f"alias maps     : {'; '.join(mapped) if mapped else 'none'}")
     state, detail = fork_gate()
-    print('fork gate      : {0}  ({1})'.format(state, detail))
+    print(f"fork gate      : {state}  ({detail})")
     lines, forced = subagent_model_lines()
-    print('subagent model : {0}={1}, {2}={3}'.format(SUBAGENT_VAR, effective_env(SUBAGENT_VAR) or '(unset)', FORCE_VAR, effective_env(FORCE_VAR) or '(unset)'))
+    print(f"subagent model : {SUBAGENT_VAR}={effective_env(SUBAGENT_VAR) or '(unset)'}, {FORCE_VAR}={effective_env(FORCE_VAR) or '(unset)'}")
     for line in lines:
         print(line)
     for note in filter(None, map(shell_override_note, list(ALIAS_ENV.values()) + [FORK_VAR, SUBAGENT_VAR, FORCE_VAR])):
-        print('note           : {0}'.format(note))
+        print(f"note           : {note}")
     key, enabled, src = plugin_enabled()
     if key:
-        print('plugin enabled : {0} = {1} ({2})'.format(key, json.dumps(enabled), src))
+        print(f"plugin enabled : {key} = {json.dumps(enabled)} ({src})")
         if not enabled:
-            problems.append('{0} is disabled in {1}; its hooks do not run'.format(key, src))
+            problems.append(f"{key} is disabled in {src}; its hooks do not run")
     else:
         from_cache = "/plugins/cache/" in str(root) or "\\plugins\\cache\\" in str(root)
-        print('plugin enabled : no enabledPlugins entry for model-router@<marketplace> in the settings files'
+        print(f"plugin enabled : no enabledPlugins entry for model-router@<marketplace> in the settings files"
               + (" -- the plugin root is a marketplace install, so it should have one" if from_cache else " (expected for a --plugin-dir checkout)"))
         if from_cache:
             problems.append("no enabledPlugins entry for model-router@<marketplace> although it is installed from a marketplace; run `/plugin` and enable it")
     if forced:
-        problems.append('{0} is set; every subagent runs on that model and tier routing has no effect'.format(FORCE_VAR))
+        problems.append(f"{FORCE_VAR} is set; every subagent runs on that model and tier routing has no effect")
     exe, version = claude_version()
-    print('claude on PATH : {0}'.format('{0} -- {1}'.format(exe, version) if exe else 'not found (the `check` command needs it; the hooks do not)'))
+    print(f"claude on PATH : {f'{exe} -- {version}' if exe else 'not found (the `check` command needs it; the hooks do not)'}")
     print("problems: none" if not problems else "problems:")
     for p in problems:
-        print('  - {0}'.format(p))
+        print(f"  - {p}")
     return 1 if problems else 0
 
 

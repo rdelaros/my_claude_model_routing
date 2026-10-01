@@ -77,11 +77,11 @@ def save_report(report, agent_id):
     except OSError:
         pass
     safe = "".join(ch for ch in str(agent_id or "") if ch.isalnum() or ch in "-_")[:80] or "agent"
-    path = folder / '{0}-{1}.md'.format(safe, int(time.time()))
+    path = folder / f"{safe}-{int(time.time())}.md"
     n = 1
     while path.exists():
         n += 1
-        path = folder / '{0}-{1}-{2}.md'.format(safe, int(time.time()), n)
+        path = folder / f"{safe}-{int(time.time())}-{n}.md"
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(report)
@@ -109,7 +109,11 @@ def main():
 
     path = save_report(report, payload.get("agent_id"))
     reason = (
-        "Your report is {0:,} characters; the budget is {1:,}, because it is copied into the caller's conversation and billed on every later turn. The full text is already saved at {2} — do not rewrite or re-save it, and run no more tools. Reply now with a summary under {3:,} characters: the conclusion first, then only what the caller needs to decide or act (exact ids, paths, numbers, blockers). End with the line: Full report: {4}".format(len(report), budget, path, budget // 2, path)
+        f"Your report is {len(report):,} characters; the budget is {budget:,}, because it is copied into the caller's "
+        f"conversation and billed on every later turn. The full text is already saved at {path} — do not rewrite or "
+        f"re-save it, and run no more tools. Reply now with a summary under {budget // 2:,} characters: the conclusion "
+        f"first, then only what the caller needs to decide or act (exact ids, paths, numbers, blockers). "
+        f"End with the line: Full report: {path}"
     )
     json.dump({"decision": "block", "reason": reason}, sys.stdout)
 

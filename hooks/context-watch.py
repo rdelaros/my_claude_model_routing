@@ -17,27 +17,13 @@ Tunables (environment):
                                 transcript (3600 if 1-hour cache writes are seen, else 300)
   MODEL_ROUTER_CONTEXT_WATCH=0  disable
 """
-import calendar
 import json
 import os
-import re
 import sys
 import time
+from datetime import datetime
 
 TAIL_BYTES = 4 * 1024 * 1024
-
-def iso_to_epoch(stamp):
-    """Seconds since the epoch for an ISO-8601 timestamp such as 2026-09-30T17:15:21.123Z (any Python 3)."""
-    m = re.match(r"(\d{4})-(\d\d)-(\d\d)[T ](\d\d):(\d\d):(\d\d)(?:\.\d+)?(Z|[+-]\d\d:?\d\d)?$", str(stamp).strip())
-    if not m:
-        raise ValueError("not an ISO timestamp: %r" % (stamp,))
-    y, mo, d, h, mi, s, tz = m.groups()
-    epoch = calendar.timegm((int(y), int(mo), int(d), int(h), int(mi), int(s), 0, 0, 0))
-    if tz and tz != "Z":
-        sign = -1 if tz[0] == "-" else 1
-        epoch -= sign * (int(tz[1:3]) * 3600 + int(tz[-2:]) * 60)
-    return epoch
-
 
 
 def env_int(name, default):
@@ -110,7 +96,7 @@ def main():
                 one_hour_cache = True
             if d.get("timestamp"):
                 try:
-                    last_call_ts = iso_to_epoch(d["timestamp"])
+                    last_call_ts = datetime.fromisoformat(d["timestamp"].replace("Z", "+00:00")).timestamp()
                 except (ValueError, TypeError):
                     pass
 
@@ -127,12 +113,14 @@ def main():
 
     ttl = env_int("MODEL_ROUTER_CACHE_TTL", 3600 if one_hour_cache else 300)
     idle = time.time() - last_call_ts
-    size = '{0:.0f}k tokens'.format(now_ctx / 1000)
+    size = f"{now_ctx / 1000:.0f}k tokens"
 
     if idle > ttl:
-        msg = ('model-router: context is {0} and the last turn was {1:.0f} min ago, so the prompt cache (lifetime {2} min) has expired. This turn re-writes all of it. Running /compact first costs about the same and makes every later turn cheaper.'.format(size, idle / 60, ttl // 60))
+        msg = (f"model-router: context is {size} and the last turn was {idle / 60:.0f} min ago, so the prompt cache "
+               f"(lifetime {ttl // 60} min) has expired. This turn re-writes all of it. Running /compact first costs "
+               f"about the same and makes every later turn cheaper.")
     elif now_ctx // step > max(before_ctx, threshold - 1) // step or before_ctx < threshold:
-        msg = 'model-router: context is {0} — every tool call is billed against all of it. Consider /compact at the next natural break.'.format(size)
+        msg = f"model-router: context is {size} — every tool call is billed against all of it. Consider /compact at the next natural break."
     else:
         return
 

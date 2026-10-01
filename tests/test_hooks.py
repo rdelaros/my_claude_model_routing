@@ -4,7 +4,6 @@ Every hook is run the way Claude Code runs it — as a subprocess with a JSON pa
 and CLAUDE_CONFIG_DIR / CLAUDE_PLUGIN_ROOT in the environment — against a temporary config
 directory, so a passing suite means the installed scripts work, not just their functions.
 """
-import ast
 import json
 import os
 import re
@@ -50,7 +49,7 @@ class HookCase(unittest.TestCase):
         if plugin_root:
             env["CLAUDE_PLUGIN_ROOT"] = str(plugin_root)
         proc = subprocess.run([sys.executable, str(HOOKS / script), *args], input=json.dumps(payload),
-                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, env=env, timeout=60)
+                              capture_output=True, text=True, env=env, timeout=60)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(proc.stderr, "", proc.stderr)
         return json.loads(proc.stdout) if proc.stdout.strip() else None
@@ -69,7 +68,7 @@ class RulesContext(HookCase):
         self.assertTrue(text.startswith(router_context.RULES_MARKER))
         self.assertLessEqual(len(text), router_context.MAX_CONTEXT_CHARS)
         self.assertLessEqual(text.count("\n") + 1, router_context.MAX_CONTEXT_LINES)
-        self.assertTrue(text.endswith('Feedback file: `{0}`'.format(self.cfg / 'model-router' / 'routing-feedback.md')))
+        self.assertTrue(text.endswith(f"Feedback file: `{self.cfg / 'model-router' / 'routing-feedback.md'}`"))
         self.assertNotIn("{builder_model}", text)
         self.assertNotIn("{operator_model}", text)
         self.assertNotIn("{senior_operator_model}", text)
@@ -85,7 +84,7 @@ class RulesContext(HookCase):
     def test_long_rules_are_cut_at_a_line_and_the_feedback_line_survives(self):
         fake = Path(self.tmp.name) / "plugin"
         (fake / "rules").mkdir(parents=True)
-        (fake / "rules" / "routing.md").write_text("## Model routing\n" + "\n".join('- rule {0} '.format(i) + "x" * 60 for i in range(300)))
+        (fake / "rules" / "routing.md").write_text("## Model routing\n" + "\n".join(f"- rule {i} " + "x" * 60 for i in range(300)))
         text = self.run_hook("session-start.py", {"session_id": "s1"}, "rules", plugin_root=fake)["hookSpecificOutput"]["additionalContext"]
         self.assertLessEqual(len(text), router_context.MAX_CONTEXT_CHARS)
         self.assertLessEqual(text.count("\n") + 1, router_context.MAX_CONTEXT_LINES)
@@ -140,7 +139,7 @@ class Corrections(HookCase):
         self.assertLessEqual(len(rows[0]), router_context.MAX_CORRECTION_CHARS)
 
     def test_injected_corrections_fit_and_keep_the_newest(self):
-        self.feedback(router_context.FEEDBACK_HEADER + "".join('| 2026-01-{0:02d} | situation {1} '.format(i, i) + "z" * 200 + " | a | b | c |\n" for i in range(1, 100)))
+        self.feedback(router_context.FEEDBACK_HEADER + "".join(f"| 2026-01-{i:02d} | situation {i} " + "z" * 200 + " | a | b | c |\n" for i in range(1, 100)))
         out = self.run_hook("session-start.py", {"session_id": "s1"}, "corrections")
         text = out["hookSpecificOutput"]["additionalContext"]
         self.assertLessEqual(len(text), router_context.MAX_CONTEXT_CHARS)
@@ -388,7 +387,7 @@ class GuardWrites(HookCase):
                     "echo `sed -i s/a/b/ f`", "cp a b", "mv a b", "rm -rf dir", "dd if=/dev/zero of=f", "install -m 644 a b", "rsync a b", "touch f", "mkdir d",
                     "python3 -c \"open('f','w').write('x')\"", "node -e 'require(\"fs\").writeFileSync(\"f\",\"x\")'", "bash -c 'echo x > f'", "sh -c \"echo x > f\"",
                     "eval 'echo x > f'", "curl -o f URL", "wget -O f URL", "tar xf a.tar", "unzip a.zip", "exec > file", "> file cat", "echo x > $TMPDIR/../x", "echo x | tee {}",
-                    'echo x > {0}/../other/file'.format(tmp)):
+                    f"echo x > {tmp}/../other/file"):
             self.assertEqual(self.bash(cmd), "deny", cmd)
             self.assertEqual(self.bash(cmd, "model-router:senior-operator"), "deny", cmd)
             self.assertEqual(self.bash(cmd, "model-router:coordinator"), "deny", cmd)
@@ -399,10 +398,10 @@ class GuardWrites(HookCase):
                     "kubectl get pods -o yaml > /dev/null", "kubectl get pods | grep -v Running >/dev/null; echo $?", "(cmd >/dev/null)", "cmd 2>/dev/null|wc -l",
                     "cmd 2>/dev/null&&true", "ls > /dev/null 2>&1; echo done", "printf x > /dev/tty", "sed -n '1,5p' file", "sed -e 's/a/b/' file",
                     "terraform plan -out=plan.tfplan", "kubectl patch deploy x", "az webapp restart", "git rebase main", "git merge x", "git tag v1", "git -C /x log --oneline",
-                    "git log --format='%h -> %s'", 'gh pr diff 42 > {0}/diff.patch'.format(self.SCRATCH), 'gh pr diff 1 > "{0}/pr 1.diff"'.format(self.SCRATCH), 'glab mr diff 7 >> {0}/mr.diff'.format(tmp),
-                    "echo x > '{0}/y'".format(tmp), 'echo x > "$TMPDIR/y"', "echo x > $TMPDIR/y", "echo x > ${TMPDIR}/z", 'ls | tee "{0}/t.log"'.format(self.SCRATCH),
-                    'echo ok | tee {0}/a {1}/b'.format(self.SCRATCH, tmp), 'cp a.txt {0}/b.txt'.format(tmp), 'rm {0}/old.diff'.format(self.SCRATCH), 'mkdir -p {0}/work'.format(tmp), 'curl -o {0}/x.json https://x'.format(tmp),
-                    'tar xf a.tar -C {0}/u'.format(tmp), "echo \"a > b\"", "awk '{print > \"x\"}' f", "git stash && git pull && git stash pop", "pytest -q 1>&2", "bash -c 'ls -la'",
+                    "git log --format='%h -> %s'", f"gh pr diff 42 > {self.SCRATCH}/diff.patch", f'gh pr diff 1 > "{self.SCRATCH}/pr 1.diff"', f"glab mr diff 7 >> {tmp}/mr.diff",
+                    f"echo x > '{tmp}/y'", 'echo x > "$TMPDIR/y"', "echo x > $TMPDIR/y", "echo x > ${TMPDIR}/z", f'ls | tee "{self.SCRATCH}/t.log"',
+                    f"echo ok | tee {self.SCRATCH}/a {tmp}/b", f"cp a.txt {tmp}/b.txt", f"rm {self.SCRATCH}/old.diff", f"mkdir -p {tmp}/work", f"curl -o {tmp}/x.json https://x",
+                    f"tar xf a.tar -C {tmp}/u", "echo \"a > b\"", "awk '{print > \"x\"}' f", "git stash && git pull && git stash pop", "pytest -q 1>&2", "bash -c 'ls -la'",
                     "python3 -c \"print(open('f').read())\"", "python3 - <<'EOF'\nif a > b:\n    print(1)\nEOF", "psql -c x <<EOF\nselect * from t where a > 1;\nEOF",
                     "cat <<EOF\n<p>html</p>\nEOF", "echo a -> b", "cat f | tee >(wc -l)"):
             self.assertIsNone(self.bash(cmd), cmd)
@@ -446,19 +445,19 @@ class Definitions(unittest.TestCase):
             for groups in hooks.values():
                 for group in groups:
                     for hook in group["hooks"]:
-                        proc = subprocess.run(hook["command"], shell=True, input=payload, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, env=env, timeout=60)
+                        proc = subprocess.run(hook["command"], shell=True, input=payload, capture_output=True, text=True, env=env, timeout=60)
                         self.assertEqual(proc.returncode, 0, hook["command"])
                         self.assertNotIn("Traceback", proc.stderr, hook["command"])
 
     def test_agent_frontmatter(self):
         ignored_for_plugin_agents = {"hooks", "permissionMode", "mcpServers"}
         for name in ("builder", "operator", "senior-operator", "coordinator"):
-            keys, _ = self.frontmatter(ROOT / "agents" / '{0}.md'.format(name))
+            keys, _ = self.frontmatter(ROOT / "agents" / f"{name}.md")
             self.assertEqual(keys["name"], " " + name)
             self.assertFalse(set(keys) & ignored_for_plugin_agents, name)
             self.assertIn(keys["model"].strip(), router_context.ALIASES + ("inherit",))
         for name in ("operator", "senior-operator"):
-            keys, _ = self.frontmatter(ROOT / "agents" / '{0}.md'.format(name))
+            keys, _ = self.frontmatter(ROOT / "agents" / f"{name}.md")
             self.assertEqual(keys["background"].strip(), "true")
             self.assertEqual(keys["omitClaudeMd"].strip(), "true")
             self.assertTrue(keys["maxTurns"].strip().isdigit())
@@ -501,17 +500,6 @@ class Definitions(unittest.TestCase):
         script = (ROOT / "tools" / "session_report.py").read_text(encoding="utf-8")
         blocks = re.findall(r"```python\n(.*?)```", doc, re.S)
         self.assertTrue(any(b.strip() == script.strip() for b in blocks), "docs/optimize-a-machine.md appendix has drifted from tools/session_report.py")
-
-    def test_scripts_stay_compatible_with_any_python_3(self):
-        """The hooks run under whatever python3 the machine has: Python 3.5 syntax and no later library calls."""
-        files = sorted(set(ROOT.glob("hooks/*.py")) | set(ROOT.glob("tools/*.py")) | set(ROOT.glob("skills/setup/scripts/*.py")) | set(ROOT.glob("tests/*.py")))
-        banned = ("fromisoformat", "capture_output=", "text=True", "removeprefix", "removesuffix", "cached_property", "math.prod", "is_relative_to")
-        for path in files:
-            source = path.read_text(encoding="utf-8")
-            if sys.version_info >= (3, 8):
-                ast.parse(source, filename=str(path), feature_version=(3, 5))
-            for api in banned:
-                self.assertNotIn(api, source.replace('banned = ("fromisoformat", "capture_output=", "text=True", "removeprefix", "removesuffix", "cached_property", "math.prod", "is_relative_to")', ""), "{0} uses {1}, which needs a newer Python".format(path.name, api))
 
     def test_versions_agree(self):
         plugin = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))

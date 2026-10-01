@@ -116,7 +116,7 @@ def build_rules():
     rules = (plugin_root / "rules" / "routing.md").read_text(encoding="utf-8").rstrip()
     for tier, model in tier_models().items():
         rules = rules.replace("{" + tier + "_model}", model)
-    tail = 'Feedback file: `{0}`'.format(feedback_path())
+    tail = f"Feedback file: `{feedback_path()}`"
     rules = fit(rules, MAX_CONTEXT_CHARS - len(tail) - 2)
     lines = rules.splitlines()
     if len(lines) > MAX_CONTEXT_LINES - 2:
@@ -139,14 +139,14 @@ def build_corrections():
     head = CORRECTIONS_HEAD + ":\n"
     if len(rows) <= MAX_CORRECTION_ROWS and len(head) + len("\n".join(rows)) <= MAX_CONTEXT_CHARS:
         return head + "\n".join(rows)
-    head = CORRECTIONS_HEAD + ' (latest rows; `{0}` has the rest):\n'.format(path)
+    head = CORRECTIONS_HEAD + f" (latest rows; `{path}` has the rest):\n"
     kept, used = [], len(head)
     for row in reversed(rows):
         if used + len(row) + 1 > MAX_CONTEXT_CHARS or len(kept) >= MAX_CORRECTION_ROWS:
             break
         kept.insert(0, row)
         used += len(row) + 1
-    return head + "\n".join(kept) if kept else CORRECTIONS_MARKER + ': read `{0}` before routing.'.format(path)
+    return head + "\n".join(kept) if kept else CORRECTIONS_MARKER + f": read `{path}` before routing."
 
 
 def build_context(part):
