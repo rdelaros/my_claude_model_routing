@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compare sessions that had the routing rules with those that did not. Read-only.
 
-usage: python3 before_after.py [CONFIG_DIR ...]      (default: ~/.claude)
+usage: python3 before_after.py [--misses N] [CONFIG_DIR ...]      (default: ~/.claude)
 
 A session counts as "after" when a hook injected the routing rules into it. Costs are relative
 units at list-price ratios (input 1, cache read 0.1, 5-minute cache write 1.25, 1-hour cache
@@ -15,11 +15,32 @@ agents and for pipelines. Agent reports are the tool results of Agent/Task calls
 <result> blocks of background task notifications; the acknowledgement of a background launch
 ("Async agent launched successfully", toolUseResult.status "async_launched") is not a report.
 "over N" uses MODEL_ROUTER_REPORT_CHARS (default 4000), the budget of hooks/report-budget.py. Set SKIP_SESSION=<id> to leave one out.
+--misses N adds, per group, the N costliest prompts that still ran 3+ Bash/MCP calls in the main session: cost
+share, call count, seconds, whether the delegation nudge of hooks/ops-nudge.py fired for that prompt, the first
+characters of the session id and of the prompt. Those are the routing misses to turn into rules or eval cases;
+the prompt text is yours, share what you want.
 """
 import collections, glob, json, os, re, sys
 from datetime import datetime
 
-dirs = [os.path.expanduser(d) for d in (sys.argv[1:] or ["~/.claude"])]
+def parse_args(argv):
+    """(config dirs, N of --misses N / --misses=N; 0 when absent)."""
+    dirs, misses, rest = [], 0, iter(argv)
+    for a in rest:
+        if a == "--misses" or a.startswith("--misses="):
+            v = a.partition("=")[2] if "=" in a else next(rest, "")
+            if v.isdigit():
+                misses = int(v)
+            else:
+                misses = 10
+                if "=" not in a and v:
+                    dirs.append(os.path.expanduser(v))
+        else:
+            dirs.append(os.path.expanduser(a))
+    return dirs or [os.path.expanduser("~/.claude")], misses
+
+
+dirs, MISSES = parse_args(sys.argv[1:])
 SKIP = os.environ.get("SKIP_SESSION", "")
 try:
     LONG = int(os.environ.get("MODEL_ROUTER_REPORT_CHARS") or 4000)
@@ -102,6 +123,7 @@ def reports(r, agent_ids):
 for cfg in dirs:
     groups = {"before": collections.defaultdict(float), "after": collections.defaultdict(float)}
     seconds = {"before": collections.defaultdict(list), "after": collections.defaultdict(list)}
+    heavy = {"before": [], "after": []}
     for path in glob.glob(os.path.join(cfg, "projects", "*", "*.jsonl")):
         if os.path.basename(path)[:-6] == SKIP:
             continue
@@ -116,16 +138,23 @@ for cfg in dirs:
                 continue
             if isinstance(r, dict) and isinstance(r.get("message") or {}, dict):
                 recs.append(r)
-        g = "after" if routed else "before"; G = groups[g]; T = seconds[g]
+        g = "after" if routed else "before"; G = groups[g]; T = seconds[g]; H = heavy[g]
         seen = set(); seen_tools = set(); agent_ids = set(); cur = None; opened = []; prompts = 0
         for r in recs:
             if r.get("isSidechain"):
                 continue
+            if r.get("type") == "attachment":                 # hook context; the nudge of hooks/ops-nudge.py lands here
+                a = r.get("attachment") or {}; text = str(a.get("content") or "")
+                if cur is not None and a.get("type") == "hook_additional_context" and "Model routing:" in text and "command/MCP calls" in text:
+                    cur["nudged"] = True
+                continue
             if r.get("type") == "user":
                 G["compactions"] += bool(r.get("isCompactSummary"))
-                if typed_prompt(r) is not None:
+                typed = typed_prompt(r)
+                if typed is not None:
                     prompts += 1
-                    cur = {"edits": 0, "ops": 0, "agent": 0, "turns": 0, "cost": 0.0, "start": when(r), "end": None}
+                    cur = {"edits": 0, "ops": 0, "agent": 0, "turns": 0, "cost": 0.0, "start": when(r), "end": None, "nudged": False,
+                           "session": os.path.basename(path)[:-6][:8], "text": re.sub(r"\s+", " ", typed)[:80]}
                     opened.append(cur)
                 for t in reports(r, agent_ids):
                     G["reports"] += 1; G["report_chars"] += len(t); G["reports_long"] += len(t) > LONG
@@ -167,7 +196,7 @@ for cfg in dirs:
             if k == "ops in main":
                 G["ops_calls"] += cur["ops"]
             if cur["ops"] >= 3:
-                G["p_heavy"] += 1; G["c_heavy"] += cur["cost"]
+                G["p_heavy"] += 1; G["c_heavy"] += cur["cost"]; H.append(cur)
         G["prompts"] += prompts; G["sessions"] += 1
 
     print(f"\n{'=' * 70}\n{cfg}")
@@ -188,3 +217,9 @@ for cfg in dirs:
         print(f"  prompts with 3+ Bash/MCP calls in main: {int(G['p_heavy'])} ({G['p_heavy'] / P:.0%} of prompts), {G['c_heavy'] / C:.0%} of cost")
         print(f"  subagent launches: {int(G['subs'])}, with a model set: {int(G['subs_with_model'])}")
         print(f"  agent reports back: {int(G['reports'])}, mean {G['report_chars'] / (G['reports'] or 1):,.0f} chars, over {LONG:,}: {int(G['reports_long'])}")
+        if MISSES and heavy[g]:
+            print("  costliest prompts with 3+ Bash/MCP calls in main (the text is yours; share what you want):")
+            print(f"    {'cost':>5} {'calls':>5} {'secs':>5} nudged session  prompt")
+            for c in sorted(heavy[g], key=lambda c: -c["cost"])[:MISSES]:
+                secs = c["end"] - c["start"] if c["start"] and c["end"] and c["end"] >= c["start"] else 0
+                print(f"    {c['cost'] / C:5.0%} {c['ops']:5} {secs:5,.0f} {'yes' if c['nudged'] else 'no':<6} {c['session']:8} {c['text']}")

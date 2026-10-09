@@ -1,0 +1,5 @@
+schema_version: "1.0"
+name: diag-pipeline-es
+description: "The same diagnosis in Spanish."
+context:
+  scaffold_script: scaffold.sh

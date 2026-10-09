@@ -1,0 +1,5 @@
+schema_version: "1.0"
+name: diag-pipeline
+description: "A failed pipeline is diagnosis: senior-operator, not the plain operator and not the main session."
+context:
+  scaffold_script: scaffold.sh

@@ -4,7 +4,9 @@
 The routing rules ask the main session to pass the tier's model on every Agent() call;
 this hook makes it certain. A launch that already names a model is left alone (an
 explicit choice wins), and so is any agent type the tiers say nothing about — those
-keep Claude Code's own default. For these launches no permission decision is made, so
+keep Claude Code's own default. The one exception is Claude Code's `general-purpose` agent, which gets
+the builder model: left alone it inherits the main model, the costliest way to run a research task
+(`MODEL_ROUTER_AGENT_MODELS="general-purpose=main"` restores that). For these launches no permission decision is made, so
 the normal permission flow is unchanged; only the input is completed (the one denial is
 the fork case below). The hook also runs inside subagents, so the coordinator's builder
 launches get the configured builder model.
@@ -40,6 +42,7 @@ TIER_OF = {
     "model-router:senior-operator": "senior_operator",
     "model-router:coordinator": "main",
     "Explore": "operator",  # read-only search
+    "general-purpose": "builder",  # Claude Code's own research/multi-step agent; it would inherit the main model
     "Plan": "main",  # design work
 }
 TIERS = tuple(TIER_DEFAULTS) + ("main",)

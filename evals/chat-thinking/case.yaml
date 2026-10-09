@@ -1,0 +1,3 @@
+schema_version: "1.0"
+name: chat-thinking
+description: "A half-finished thought is conversation: reply briefly, start nothing."

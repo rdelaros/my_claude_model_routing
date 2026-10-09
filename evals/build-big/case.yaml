@@ -1,0 +1,5 @@
+schema_version: "1.0"
+name: build-big
+description: "An approved multi-file plan goes to the coordinator, launched without a model."
+context:
+  scaffold_script: scaffold.sh

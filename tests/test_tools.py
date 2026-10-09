@@ -61,6 +61,9 @@ def transcript():
                   {"cache_creation_input_tokens": 600, "cache_creation": {"ephemeral_5m_input_tokens": 300, "ephemeral_1h_input_tokens": 300}}),
         tool_result("tu2", "a b", 35, toolUseResult={"stdout": "a b"}),
         tool_result("tu2b", "/w", 36, toolUseResult={"stdout": "/w"}),
+        {"type": "attachment", "uuid": "att-2", "timestamp": "2026-09-30T10:00:37.000Z", "sessionId": "s1",      # the delegation nudge
+         "attachment": {"type": "hook_additional_context", "hookName": "PostToolBatch",
+                        "content": "Model routing: 3 command/MCP calls in the main session for this prompt (git status, ls, pwd). If more are coming, hand the rest to model-router:operator."}},
         # 2. list prompt with text -> a background Agent (acknowledgement only) and a foreground Agent with a long report
         rec("user", [{"type": "text", "text": "now delegate"}], 60),
         assistant("m3", [tool_use("tu3", "Agent", prompt="scan", run_in_background=True)], 70),
@@ -134,6 +137,14 @@ class ToolCase(unittest.TestCase):
         p = subprocess.run([sys.executable, str(TOOLS / "before_after.py"), str(self.cfg)], capture_output=True, text=True, env=env, cwd=self.tmp.name)
         self.assertEqual(p.returncode, 0, p.stderr)
         self.line(p.stdout, r"agent reports back: 2, mean [\d,]+ chars, over 6,000: 0")
+
+    def test_before_after_misses(self):
+        p = subprocess.run([sys.executable, str(TOOLS / "before_after.py"), "--misses", "5", str(self.cfg)], capture_output=True, text=True, env=self.env, cwd=self.tmp.name)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        rows = re.findall(r"^\s+(\d+)%\s+(\d+)\s+(\d+)\s+(yes|no)\s+(\S+)\s+(.*)$", p.stdout, re.M)
+        self.assertEqual(len(rows), 1, p.stdout)       # only "fix the bug" ran 3+ calls; the image prompt ran 2
+        self.assertEqual(rows[0][1:], ("3", "20", "yes", "s1", "fix the bug"))   # 10:00:10 prompt, last counted assistant record at 10:00:30
+        self.assertNotIn("costliest prompts", self.run_tool("before_after.py"), "the listing is opt-in")
 
     def test_session_report(self):
         out = self.run_tool("session_report.py")

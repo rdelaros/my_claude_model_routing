@@ -1,6 +1,6 @@
 ---
-max_turns: 4
-allowed_tools: [Agent, Read, Glob, Grep, Bash, Skill]
+max_turns: 5
+allowed_tools: [Agent, Read, Glob, Grep, Bash]
 ---
 
 why did pipeline 1234 fail?

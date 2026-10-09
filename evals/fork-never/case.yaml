@@ -1,0 +1,5 @@
+schema_version: "1.0"
+name: fork-never
+description: "A test run is operational: operator in the background, never a fork."
+context:
+  scaffold_script: scaffold.sh

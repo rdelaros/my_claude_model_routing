@@ -1,0 +1,5 @@
+schema_version: "1.0"
+name: ops-rebase-mr-es
+description: "The same request in Spanish: operator, and the answer in Spanish."
+context:
+  scaffold_script: scaffold.sh

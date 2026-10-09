@@ -1,0 +1,5 @@
+schema_version: "1.0"
+name: ops-rebase-mr
+description: "Known git and GitLab commands go to the operator in the background."
+context:
+  scaffold_script: scaffold.sh

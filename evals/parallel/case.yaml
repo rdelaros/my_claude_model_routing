@@ -1,0 +1,5 @@
+schema_version: "1.0"
+name: parallel
+description: "Independent checks run in parallel: two operator launches in one message, or one task covering both."
+context:
+  scaffold_script: scaffold.sh

@@ -1,0 +1,5 @@
+schema_version: "1.0"
+name: reading-log
+description: "A long log is Reading/Diagnosis: senior-operator or operator, never the main context."
+context:
+  scaffold_script: scaffold.sh

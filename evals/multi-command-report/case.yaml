@@ -1,0 +1,5 @@
+schema_version: "1.0"
+name: multi-command-report
+description: "Three known commands with a report: one operator task, not three calls in the main session."
+context:
+  scaffold_script: scaffold.sh

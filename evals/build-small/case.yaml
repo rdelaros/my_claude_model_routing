@@ -1,0 +1,5 @@
+schema_version: "1.0"
+name: build-small
+description: "A one-line edit: do it here or with one builder, never the coordinator."
+context:
+  scaffold_script: scaffold.sh

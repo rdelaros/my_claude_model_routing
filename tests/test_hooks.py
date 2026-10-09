@@ -196,7 +196,7 @@ class AgentModel(HookCase):
         return self.run_hook("agent-model.py", {"tool_name": "Agent", "tool_input": tool_input, "session_id": "s"}, env=env)
 
     def test_fills_the_tier_model_with_an_accepted_alias(self):
-        for agent, alias in (("model-router:operator", "haiku"), ("model-router:builder", "sonnet"), ("model-router:senior-operator", "sonnet"), ("Explore", "haiku")):
+        for agent, alias in (("model-router:operator", "haiku"), ("model-router:builder", "sonnet"), ("model-router:senior-operator", "sonnet"), ("Explore", "haiku"), ("general-purpose", "sonnet")):
             out = self.launch({"subagent_type": agent, "prompt": "x"})
             model = out["hookSpecificOutput"]["updatedInput"]["model"]
             self.assertEqual(model, alias)
@@ -205,7 +205,8 @@ class AgentModel(HookCase):
     def test_explicit_model_main_tier_and_unknown_agents_are_left_alone(self):
         self.assertIsNone(self.launch({"subagent_type": "model-router:operator", "model": "opus"}))
         self.assertIsNone(self.launch({"subagent_type": "model-router:coordinator"}))
-        self.assertIsNone(self.launch({"subagent_type": "general-purpose"}))
+        self.assertIsNone(self.launch({"subagent_type": "my-own-agent"}))
+        self.assertIsNone(self.launch({"subagent_type": "general-purpose"}, env={"MODEL_ROUTER_AGENT_MODELS": "general-purpose=main"}))
 
     def test_configured_and_extra_pairs(self):
         (self.cfg / "model-router").mkdir()
@@ -528,16 +529,43 @@ class Definitions(unittest.TestCase):
             self.assertIn(needle, text)
 
     def test_eval_cases_are_well_formed(self):
-        cases = [p for p in (ROOT / "evals").iterdir() if p.is_dir()]
+        """Each case: a prompt, a case.yaml naming it, at least one free tool_used grader, and every llm grader reading the
+        whole trace (the runner's default judges the last message only, which hid every launch from the judge)."""
+        def frontmatter(text):
+            self.assertTrue(text.startswith("---\n"), text[:40])
+            head = text.split("\n---", 1)[0][4:]
+            return {k.strip(): v.strip() for k, v in (line.split(":", 1) for line in head.splitlines() if ":" in line)}
+        cases = sorted(p for p in (ROOT / "evals").iterdir() if p.is_dir() and p.name != "results")
         self.assertGreaterEqual(len(cases), 20)
+        scaffolds = set()
         for case in cases:
             prompt = (case / "prompt.md").read_text(encoding="utf-8")
             self.assertTrue(prompt.startswith("---\nmax_turns:"), case.name)
             self.assertTrue(prompt.strip().split("---")[-1].strip(), "empty prompt in " + case.name)
-            graders = list((case / "graders").glob("*.md"))
-            self.assertTrue(graders, case.name)
-            for g in graders:
-                self.assertIn("type: llm", g.read_text(encoding="utf-8"))
+            meta = (case / "case.yaml").read_text(encoding="utf-8")
+            self.assertIn('schema_version: "1.0"', meta, case.name)
+            self.assertIn("name: " + case.name + "\n", meta, case.name)
+            self.assertRegex(meta, r'(?m)^description: "[^"\n]+"$', case.name + ": the description must be a double-quoted scalar (a colon in a bare one breaks the runner's YAML parser)")
+            if "scaffold_script:" in meta:
+                script = case / meta.split("scaffold_script:", 1)[1].split()[0]
+                self.assertTrue(script.exists(), script)
+                scaffolds.add(script.read_bytes())
+            kinds = []
+            for g in sorted((case / "graders").glob("*.md")):
+                fm = frontmatter(g.read_text(encoding="utf-8"))
+                kinds.append(fm.get("type"))
+                self.assertIn(fm.get("type"), ("llm", "tool_used", "regex", "tool_order"), g)
+                if fm["type"] == "llm":
+                    self.assertEqual(fm.get("focus"), "trace", f"{g}: an llm grader without focus: trace judges the last message only")
+                    self.assertTrue(g.read_text(encoding="utf-8").split("\n---", 1)[1].strip(), f"{g}: empty criteria")
+                if fm["type"] == "tool_used":
+                    self.assertIn("tool", fm, g)
+                    if fm.get("max") == "0":
+                        self.assertEqual(fm.get("min"), "0", f"{g}: max 0 needs min 0 (min defaults to 1, so the grader could never pass)")
+                    if "input_match" in fm:
+                        re.compile(fm["input_match"].strip("'"))
+            self.assertIn("tool_used", kinds, f"{case.name}: no deterministic grader")
+        self.assertLessEqual(len(scaffolds), 1, "scaffold.sh differs between cases")
 
     def test_versions_agree(self):
         plugin = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))

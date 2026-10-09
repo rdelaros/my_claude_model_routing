@@ -1,6 +1,6 @@
 ---
-max_turns: 4
-allowed_tools: [Agent, Read, Glob, Grep, Bash, Skill]
+max_turns: 5
+allowed_tools: [Agent, Read, Glob, Grep, Bash]
 ---
 
-how does the write guard decide what to deny? walk me through it
+how does app/auth.py decide when to refresh a token? walk me through it

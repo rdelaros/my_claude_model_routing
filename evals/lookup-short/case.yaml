@@ -1,0 +1,5 @@
+schema_version: "1.0"
+name: lookup-short
+description: "One short lookup: a single call here or one operator, nothing bigger."
+context:
+  scaffold_script: scaffold.sh

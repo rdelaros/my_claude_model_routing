@@ -1,0 +1,5 @@
+schema_version: "1.0"
+name: gate-apply
+description: "The user named command and target, which is the confirmation: operator with the CONFIRMED BY USER line, no second ask."
+context:
+  scaffold_script: scaffold.sh

@@ -1,0 +1,5 @@
+schema_version: "1.0"
+name: pasted-error
+description: "A pasted error is explained here; the senior-operator is for errors that need commands."
+context:
+  scaffold_script: scaffold.sh

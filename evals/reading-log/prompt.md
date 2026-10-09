@@ -1,6 +1,6 @@
 ---
-max_turns: 4
-allowed_tools: [Agent, Read, Glob, Grep, Bash, Skill]
+max_turns: 5
+allowed_tools: [Agent, Read, Glob, Grep, Bash]
 ---
 
-here is the failing job log, it is 3000 lines, find out what went wrong: (log attached)
+the failing job log is in job-1234.log, 3000 lines, find out what went wrong

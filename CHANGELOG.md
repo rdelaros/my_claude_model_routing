@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.10.0
+
+Measured on two config directories of one machine running Claude Code 2.1.295 (`tools/before_after.py`): cost per prompt down a third, mean context per call down a third to a half, calls over 200k context down from 25% to none in the busier directory, agent reports down from 4,500 to 700 characters. Prompts that still ran three or more commands in the main session were the largest remaining cost, and `general-purpose` launches on the main model the costliest launch type. The eval suite reported a 21% pass rate with and without the plugin: that was the suite, fixed below.
+
+### Evals
+- Every judge grader reads the whole trace (`focus: trace`). The runner's default judges the last message only, so no grader could see which agent was launched and most cases failed on both arms.
+- Each case also has free, deterministic `tool_used` graders: which `subagent_type` was launched (and that the coordinator got no `model`), and what the main session did not run (`git`, `terraform apply`, a `Read` of the 3,000-line log, a `fork`).
+- Sixteen cases stage a small fake project with `scaffold.sh` (a git checkout on a feature branch with a local origin, a CI file, a Terraform folder, tests, an uncommitted change and a failed job log); in an empty workspace the model could only ask where the repository was. The suite runs with `--scaffold --allow-tools Bash --ablation none`; `evals/README.md` has the command, the cost and how to read a failure.
+- Prompts that depended on earlier conversation now carry their context; `skill-report` became `multi-command-report`.
+
+### Routing
+- `general-purpose` launches get the builder model, from the rules and from the `agent-model` hook (`MODEL_ROUTER_AGENT_MODELS="general-purpose=main"` restores inheritance of the main model).
+
+### Tools
+- `before_after.py --misses N` lists the N costliest prompts that still ran 3+ Bash/MCP calls in the main session, with whether the delegation nudge fired for them: the misses to turn into rules or eval cases.
+- `before_after.py` tolerates a string `toolUseResult`.
+
 ## 1.9.0
 
 Verified against Claude Code 2.1.286; the hooks now use events and fields that exist from that version.

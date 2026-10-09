@@ -1,0 +1,5 @@
+schema_version: "1.0"
+name: reading-code
+description: "One file: read it (here or through Explore/operator) and explain; do not launch builders."
+context:
+  scaffold_script: scaffold.sh

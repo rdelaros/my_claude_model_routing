@@ -1,0 +1,3 @@
+schema_version: "1.0"
+name: gate-restart
+description: "A restart changes cloud state and the target was not named: ask, naming command and target, before anything runs."

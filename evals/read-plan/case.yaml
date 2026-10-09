@@ -1,0 +1,5 @@
+schema_version: "1.0"
+name: read-plan
+description: "A plan is free: operator runs it, the main session judges the summary."
+context:
+  scaffold_script: scaffold.sh

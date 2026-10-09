@@ -1,0 +1,3 @@
+schema_version: "1.0"
+name: approval-after-proposal
+description: "An approval with nothing proposed before it: ask, do not guess."

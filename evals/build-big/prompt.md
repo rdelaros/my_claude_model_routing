@@ -1,6 +1,6 @@
 ---
-max_turns: 4
-allowed_tools: [Agent, Read, Glob, Grep, Bash, Skill]
+max_turns: 5
+allowed_tools: [Agent, Read, Glob, Grep, Bash, Edit, Write]
 ---
 
-implement the plan we agreed: new reviewer agent file, a hook that routes it, tests for it and the README section
+the plan is agreed, implement it: 1) add app/reviewer.py with a Reviewer class that scores a diff, 2) add hooks/route-reviewer.py that routes review requests to it, 3) add tests/test_reviewer.py, 4) add a Reviewer section to the README. Tests run with pytest -q.

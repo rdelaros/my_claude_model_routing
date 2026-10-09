@@ -1,0 +1,5 @@
+schema_version: "1.0"
+name: commit-text
+description: "Commit text is agreed with the user first; the commit itself is operator work afterwards."
+context:
+  scaffold_script: scaffold.sh
