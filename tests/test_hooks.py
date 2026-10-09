@@ -565,6 +565,7 @@ class Definitions(unittest.TestCase):
                     if "input_match" in fm:
                         re.compile(fm["input_match"].strip("'"))
             self.assertIn("tool_used", kinds, f"{case.name}: no deterministic grader")
+            self.assertLessEqual(len(kinds), 4, f"{case.name}: at most four equal graders, so one failure fails the case at the 0.8 threshold")
         self.assertLessEqual(len(scaffolds), 1, "scaffold.sh differs between cases")
 
     def test_versions_agree(self):

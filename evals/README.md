@@ -5,7 +5,7 @@ Twenty natural messages, in English and Spanish, each with the routing decision 
 ## Run
 
 ```
-claude plugin eval . --scaffold --allow-tools Bash --ablation none --runs 1 --max-cost-usd 3 --threshold 0.7
+claude plugin eval . --scaffold --allow-tools Bash --ablation none --runs 1 --max-cost-usd 3 --threshold 0.8
 ```
 
 - `--scaffold` runs each case's `scaffold.sh` in the case's empty workspace first: a git checkout of a fake `acme/api` project on a feature branch with a local origin, a GitLab CI file, a Terraform folder with a saved plan, a test suite, one uncommitted change and a 3,000-line failed job log. Without it the model has nothing to rebase, diagnose or edit and can only ask where the repository is. Read `scaffold.sh` before passing the flag: it runs as you.
@@ -23,7 +23,7 @@ Each case directory holds `prompt.md` (the user message, with `max_turns` and th
 - `tool_used` counts every call in the trace, the launched agents' included (their records carry `parent_tool_use_id`), so a case that expects the operator to run git cannot also demand `max: 0` on `Bash`; the first real run failed six cases that way. What the main session itself did or did not run is left to the judge, whose criteria say how to tell the two apart.
 - One `llm` grader per case reads the whole trace (`focus: trace`; the runner's default judges the last message only, which is why the suite once failed every delegation case) and checks what no regex can: the answer was in Spanish, a one-line status was given, nothing was asked twice. Three haiku votes decide.
 
-A case passes when the weighted score of its graders reaches `--threshold`. Each grader's explanation is in the HTML report and in the JSON (`cases[].arms[].runs[].graders[]`: `name`, `passed`, `explanation`, and for the judge `judgeVotes` and `evidence`, the text it was shown).
+A case has at most four graders of equal weight and passes at `--threshold 0.8`, so any single failing grader fails the case: every grader is one whose failure means a wrong decision or a criterion to fix (at 0.7 a four-grader case passed with one failure, which is how an essay in reply to a half-finished sentence once counted as a pass). The judge is shown the first and last twelve records of a long trace, so criteria judge the opening decision and the final reply, and the launch itself is left to `tool_used`. Each grader's explanation is in the HTML report and in the JSON (`cases[].arms[].runs[].graders[]`: `name`, `passed`, `explanation`, and for the judge `judgeVotes` and `evidence`, the text it was shown).
 
 ## Reading a failure
 
