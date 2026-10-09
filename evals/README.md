@@ -20,6 +20,7 @@ claude plugin eval . --scaffold --allow-tools Bash --ablation none --runs 1 --ma
 Each case directory holds `prompt.md` (the user message, with `max_turns` and the tools it may use), `case.yaml` (name, description, the scaffold) and `graders/`:
 
 - `tool_used` graders are free and deterministic. They match a regex against the JSON input of each tool call: an `Agent` launch with `"subagent_type":"model-router:operator"` at least once; no `Bash` call matching `\bgit\b` in the main session (`min: 0`, `max: 0`); no `Read` of the long log; no `fork`; a coordinator launched without `"model":`.
+- `tool_used` counts every call in the trace, the launched agents' included (their records carry `parent_tool_use_id`), so a case that expects the operator to run git cannot also demand `max: 0` on `Bash`; the first real run failed six cases that way. What the main session itself did or did not run is left to the judge, whose criteria say how to tell the two apart.
 - One `llm` grader per case reads the whole trace (`focus: trace`; the runner's default judges the last message only, which is why the suite once failed every delegation case) and checks what no regex can: the answer was in Spanish, a one-line status was given, nothing was asked twice. Three haiku votes decide.
 
 A case passes when the weighted score of its graders reaches `--threshold`. Each grader's explanation is in the HTML report and in the JSON (`cases[].arms[].runs[].graders[]`: `name`, `passed`, `explanation`, and for the judge `judgeVotes` and `evidence`, the text it was shown).

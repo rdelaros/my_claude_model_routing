@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Stage a small fake project in the eval's empty workspace so the routing decision has something to act on: a git
 # checkout of acme/api on branch feature/token-refresh with a local "origin", a GitLab CI file, a Terraform folder
-# with a saved plan for pre, a test suite, one uncommitted change and a 3,000-line failed job log.
+# with a saved plan for pre, a test suite, one untracked new file (app/refunds.py) and a 3,000-line failed job log.
 # `claude plugin eval` runs it only with --scaffold. Every case that needs it holds an identical copy (a test checks).
 set -eu
 export GIT_AUTHOR_NAME=eval GIT_AUTHOR_EMAIL=eval@example.com GIT_COMMITTER_NAME=eval GIT_COMMITTER_EMAIL=eval@example.com
@@ -154,4 +154,15 @@ git push -q -u origin main
 git checkout -q -b feature/token-refresh
 printf '\n\ndef refresh_soon(store):\n    """True when the token will be refreshed on the next get()."""\n    return not store.valid()\n' >> app/auth.py
 git commit -qam "Refresh tokens before expiry"
-printf '\n\ndef refund(token, charge_id):\n    r = requests.post(BASE + "/charges/" + charge_id + "/refund", headers={"Authorization": "Bearer " + token}, timeout=10)\n    r.raise_for_status()\n    return r.json()\n' >> app/client.py
+cat > app/refunds.py <<'EOF'
+"""Refunds against the payment provider (new, not yet committed)."""
+import requests
+
+from app.client import BASE
+
+
+def refund(token, charge_id):
+    r = requests.post(BASE + "/charges/" + charge_id + "/refund", headers={"Authorization": "Bearer " + token}, timeout=10)
+    r.raise_for_status()
+    return r.json()
+EOF

@@ -9,8 +9,10 @@ Measured on two config directories of one machine running Claude Code 2.1.295 (`
 - Each case also has free, deterministic `tool_used` graders: which `subagent_type` was launched (and that the coordinator got no `model`), and what the main session did not run (`git`, `terraform apply`, a `Read` of the 3,000-line log, a `fork`).
 - Sixteen cases stage a small fake project with `scaffold.sh` (a git checkout on a feature branch with a local origin, a CI file, a Terraform folder, tests, an uncommitted change and a failed job log); in an empty workspace the model could only ask where the repository was. The suite runs with `--scaffold --allow-tools Bash --ablation none`; `evals/README.md` has the command, the cost and how to read a failure.
 - Prompts that depended on earlier conversation now carry their context; `skill-report` became `multi-command-report`.
+- First real run of the rewritten suite (20 cases, no shell grant, $2.48): 13 of 20 at the 0.7 threshold. Six of the seven failures were counters that took the launched operator's own git, glab or terraform attempts for main-session calls, since `tool_used` counts every call in the trace; those counters are gone and the judge criteria say how to tell the two apart. The seventh was a Spanish rebase that stopped to ask about an uncommitted change in the staged project; the staged change is now an untracked file, which a rebase ignores.
 
 ### Routing
+- A thought that stops mid-sentence gets a line or two back, not an essay: the chat-thinking case answered a half-finished sentence with a design document.
 - `general-purpose` launches get the builder model, from the rules and from the `agent-model` hook (`MODEL_ROUTER_AGENT_MODELS="general-purpose=main"` restores inheritance of the main model).
 
 ### Tools
