@@ -2,7 +2,7 @@
 
 ## 1.10.0
 
-Measured on two config directories of one machine running Claude Code 2.1.295 (`tools/before_after.py`): cost per prompt down a third, mean context per call down a third to a half, calls over 200k context down from 25% to none in the busier directory, agent reports down from 4,500 to 700 characters. Prompts that still ran three or more commands in the main session were the largest remaining cost, and `general-purpose` launches on the main model the costliest launch type. The eval suite reported a 21% pass rate with and without the plugin: that was the suite, fixed below.
+Measured on two config directories of one machine running Claude Code 2.1.295 (`tools/before_after.py`): cost per prompt down a third, mean context per call down a third to a half, calls over 200k context down from 25% to none in the busier directory, agent reports down from 4,500 to 700 characters. Prompts that still ran three or more commands in the main session were the largest remaining cost, and `general-purpose` launches on the main model the costliest launch type. A second machine (Windows 11, Claude Code 2.1.286) showed the same shape: cost per prompt down 48%, calls over 200k context from 47% to 2%, median time per prompt from 54 to 40 seconds and building from 296 to 143 seconds, with prompts of 3+ main-session commands still 45% of cost. The eval suite reported a 21% pass rate with and without the plugin: that was the suite, fixed below.
 
 ### Evals
 - Every judge grader reads the whole trace (`focus: trace`). The runner's default judges the last message only, so no grader could see which agent was launched and most cases failed on both arms.
@@ -11,6 +11,7 @@ Measured on two config directories of one machine running Claude Code 2.1.295 (`
 - Prompts that depended on earlier conversation now carry their context; `skill-report` became `multi-command-report`.
 - First real run of the rewritten suite (20 cases, no shell grant, $2.48): 13 of 20 at the 0.7 threshold. Six of the seven failures were counters that took the launched operator's own git, glab or terraform attempts for main-session calls, since `tool_used` counts every call in the trace; those counters are gone and the judge criteria say how to tell the two apart. The seventh was a Spanish rebase that stopped to ask about an uncommitted change in the staged project; the staged change is now an untracked file, which a rebase ignores.
 - Third run (threshold 0.8, no shell grant, $2.52, 8 minutes): 19 of 20. The one failure was real: `commit-text` wrote a commit message and launched the operator to commit it without waiting for the user's yes.
+- Second machine (Windows 11, Claude Code 2.1.286, no shell grant, $3.31 for 18 of 20 cases): 8 passed. Seven of the ten failures were the judge failing a right decision over a long reply, an English agent report or a one-word criterion; those cases now have deterministic graders where the decision allows it (the confirmation line, all three commands in one task, both environments in the pipeline check) and criteria that say length and agent text do not matter. One criterion was wrong (an empty body raises before `.get` is reached) and is fixed.
 - Cases keep at most four graders of equal weight and run at threshold 0.8, so one failing grader fails the case (at 0.7 a four-grader case passed with any single failure). Counters that could trip on a correct decision in the shell-granted mode (a quick `git log` before asking, a listing before a restart, a description that mentions the commit) are gone or anchored to the command; the build cases get longer timeouts for real builders.
 
 ### Routing
@@ -18,8 +19,11 @@ Measured on two config directories of one machine running Claude Code 2.1.295 (`
 - A thought that stops mid-sentence gets a line or two back, not an essay: the chat-thinking case answered a half-finished sentence with a design document.
 - `general-purpose` launches get the builder model, from the rules and from the `agent-model` hook (`MODEL_ROUTER_AGENT_MODELS="general-purpose=main"` restores inheritance of the main model).
 
+### Hooks
+- The delegation nudge repeats every ten calls after the firm one at 8: on the second measured machine the costliest prompts ran 30 to 77 commands in the main session, two of them after both nudges.
+
 ### Tools
-- `before_after.py --misses N` lists the N costliest prompts that still ran 3+ Bash/MCP calls in the main session, with whether the delegation nudge fired for them: the misses to turn into rules or eval cases.
+- `before_after.py --misses N` lists the N costliest prompts that still ran 3+ Bash/MCP calls in the main session, with their date and whether the delegation nudge fired for them: the misses to turn into rules or eval cases.
 - `before_after.py` tolerates a string `toolUseResult`.
 
 ## 1.9.0

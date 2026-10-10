@@ -305,6 +305,11 @@ class OpsNudge(HookCase):
         self.assertIsNone(self.batch([OPS_CALL, OPS_CALL]))
         self.assertIn("Stop", self.batch([OPS_CALL])["hookSpecificOutput"]["additionalContext"])
         self.assertIsNone(self.batch([OPS_CALL]))
+        for _ in range(8):
+            self.assertIsNone(self.batch([OPS_CALL]), "quiet between 9 and 17")
+        self.assertIn("18 command/MCP calls", self.batch([OPS_CALL])["hookSpecificOutput"]["additionalContext"], "the firm nudge repeats every 10 calls")
+        self.assertIsNone(self.batch([OPS_CALL]))
+        self.assertIn("28 command/MCP calls", self.batch([OPS_CALL] * 9)["hookSpecificOutput"]["additionalContext"], "a batch that crosses the next mark nudges once")
         self.assertTrue((self.cfg / "model-router" / "sessions" / "s1.ops").is_file())
 
     def test_reset_and_subagents(self):

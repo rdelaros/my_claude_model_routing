@@ -16,8 +16,8 @@ agents and for pipelines. Agent reports are the tool results of Agent/Task calls
 ("Async agent launched successfully", toolUseResult.status "async_launched") is not a report.
 "over N" uses MODEL_ROUTER_REPORT_CHARS (default 4000), the budget of hooks/report-budget.py. Set SKIP_SESSION=<id> to leave one out.
 --misses N adds, per group, the N costliest prompts that still ran 3+ Bash/MCP calls in the main session: cost
-share, call count, seconds, whether the delegation nudge of hooks/ops-nudge.py fired for that prompt, the first
-characters of the session id and of the prompt. Those are the routing misses to turn into rules or eval cases;
+share, call count, seconds, whether the delegation nudge of hooks/ops-nudge.py fired for that prompt, the date,
+the first characters of the session id and of the prompt. Those are the routing misses to turn into rules or eval cases;
 the prompt text is yours, share what you want.
 """
 import collections, glob, json, os, re, sys
@@ -154,7 +154,7 @@ for cfg in dirs:
                 if typed is not None:
                     prompts += 1
                     cur = {"edits": 0, "ops": 0, "agent": 0, "turns": 0, "cost": 0.0, "start": when(r), "end": None, "nudged": False,
-                           "session": os.path.basename(path)[:-6][:8], "text": re.sub(r"\s+", " ", typed)[:80]}
+                           "date": str(r.get("timestamp") or "")[:10], "session": os.path.basename(path)[:-6][:8], "text": re.sub(r"\s+", " ", typed)[:80]}
                     opened.append(cur)
                 for t in reports(r, agent_ids):
                     G["reports"] += 1; G["report_chars"] += len(t); G["reports_long"] += len(t) > LONG
@@ -219,7 +219,7 @@ for cfg in dirs:
         print(f"  agent reports back: {int(G['reports'])}, mean {G['report_chars'] / (G['reports'] or 1):,.0f} chars, over {LONG:,}: {int(G['reports_long'])}")
         if MISSES and heavy[g]:
             print("  costliest prompts with 3+ Bash/MCP calls in main (the text is yours; share what you want):")
-            print(f"    {'cost':>5} {'calls':>5} {'secs':>5} nudged session  prompt")
+            print(f"    {'cost':>5} {'calls':>5} {'secs':>5} nudged date       session  prompt")
             for c in sorted(heavy[g], key=lambda c: -c["cost"])[:MISSES]:
                 secs = c["end"] - c["start"] if c["start"] and c["end"] and c["end"] >= c["start"] else 0
-                print(f"    {c['cost'] / C:5.0%} {c['ops']:5} {secs:5,.0f} {'yes' if c['nudged'] else 'no':<6} {c['session']:8} {c['text']}")
+                print(f"    {c['cost'] / C:5.0%} {c['ops']:5} {secs:5,.0f} {'yes' if c['nudged'] else 'no':<6} {c['date']:10} {c['session']:8} {c['text']}")

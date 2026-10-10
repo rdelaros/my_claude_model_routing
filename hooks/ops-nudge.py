@@ -8,7 +8,9 @@ the commands it saw. It never blocks and never makes a permission decision.
 
   count   (PostToolBatch)        add the batch's Bash/MCP calls to the per-session counter;
                                  add the reminder when the count crosses NUDGE_AT, and a
-                                 shorter, firmer one when it crosses NUDGE_AT + 5
+                                 shorter, firmer one when it crosses NUDGE_AT + 5 and every
+                                 10 calls after that (a prompt that runs fifty commands here
+                                 needs more than two reminders)
   reset   (UserPromptSubmit)     set the counter back to 0
 
 PostToolBatch fires once per batch after every call in it has resolved, failed ones
@@ -21,7 +23,7 @@ Local-only and fail-open: any error exits 0 with no output (MODEL_ROUTER_DEBUG=1
 
 Tunable (environment):
   MODEL_ROUTER_NUDGE_AT   calls at which the first reminder fires (default 3; 0 disables);
-                          the second fires at this number + 5
+                          the second fires at this number + 5, then every 10 calls
 """
 import json
 import os
@@ -98,10 +100,11 @@ def main():
     n = before + len(calls)
     write_count(path, n)
     seen = ", ".join(dict.fromkeys(label(c) for c in calls[-3:]))
+    base = at + 5
     if before < at <= n:
         text = FIRST.format(n=n, seen=seen)
-    elif before < at + 5 <= n:
-        text = SECOND.format(n=n, seen=seen)
+    elif before < base <= n or (n > base and base + 10 * ((max(before, base) - base) // 10 + 1) <= n):
+        text = SECOND.format(n=n, seen=seen)      # at NUDGE_AT + 5, then every 10 calls after it
     else:
         return
     event = payload.get("hook_event_name") or "PostToolBatch"

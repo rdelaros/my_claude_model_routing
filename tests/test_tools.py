@@ -141,9 +141,9 @@ class ToolCase(unittest.TestCase):
     def test_before_after_misses(self):
         p = subprocess.run([sys.executable, str(TOOLS / "before_after.py"), "--misses", "5", str(self.cfg)], capture_output=True, text=True, env=self.env, cwd=self.tmp.name)
         self.assertEqual(p.returncode, 0, p.stderr)
-        rows = re.findall(r"^\s+(\d+)%\s+(\d+)\s+(\d+)\s+(yes|no)\s+(\S+)\s+(.*)$", p.stdout, re.M)
+        rows = re.findall(r"^\s+(\d+)%\s+(\d+)\s+(\d+)\s+(yes|no)\s+(\S+)\s+(\S+)\s+(.*)$", p.stdout, re.M)
         self.assertEqual(len(rows), 1, p.stdout)       # only "fix the bug" ran 3+ calls; the image prompt ran 2
-        self.assertEqual(rows[0][1:], ("3", "20", "yes", "s1", "fix the bug"))   # 10:00:10 prompt, last counted assistant record at 10:00:30
+        self.assertEqual(rows[0][1:], ("3", "20", "yes", "2026-09-30", "s1", "fix the bug"))   # 10:00:10 prompt, last counted assistant record at 10:00:30
         self.assertNotIn("costliest prompts", self.run_tool("before_after.py"), "the listing is opt-in")
 
     def test_session_report(self):
