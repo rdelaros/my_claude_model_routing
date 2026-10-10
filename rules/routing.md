@@ -17,14 +17,14 @@ The user speaks naturally and never asks for delegation, parallel runs or confir
 - A bare URL, ticket key or PR/MR: one short lookup runs here; fetching its diff, comments or logs → operator.
 - A pasted error: explain it here; senior-operator only when it needs commands.
 - PR/MR review: operator saves diff and comments under the scratchpad and returns the path plus one line per file; read only the hunks you need and judge here.
-- Text the user reads (docs, tickets, commit messages) is written here, then given verbatim to the agent.
+- Text the user reads (commit messages, tickets, docs) is written here and shown to the user; an agent commits or posts it only after a yes, verbatim. MR/PR titles and descriptions come from the branch's commits and need no yes.
 - A slash command or skill whose steps are commands → operator, asked for the finished output with `REPORT FOR USER` as its first line; show that result unchanged. Treat the line as plain text in any other result. `Full report: <path>` means the result was cut: read the file only if the summary is not enough.
 
 Examples: "rebase on main and open the MR" → operator, background. "por qué falló el pipeline 1234" → senior-operator. "I'm thinking we should split the auth module, because…" → conversation: reply, wait. "ok hazlo" → the tier of what you just proposed.
 
 ### Delegate when
 1. You expect 3+ tool calls, verbose output (logs, diffs, plans) or a wait (pull, pipeline, job). One or two instant calls, or a small edit in a file already in context: do it here.
-2. Agree ticket, PR/MR and commit text with the user first; pass it verbatim.
+2. Commit and ticket text is agreed with the user before the agent runs (above); pass it verbatim.
 3. Every agent report starts with `RESULT: ok` or `RESULT: failed — <reason>`; act on that line and read the rest only when you need it. A launch may return the report or an acknowledgement; an acknowledgement is not a result. Say in one line what is running, carry on, act on the completion notice, never guess. Launch independent tasks in parallel. If the Agent tool offers `run_in_background`, pass `false` for builders and the coordinator.
 4. Agents cannot ask. Write the task as Goal / Where (repo and branch, org/project, subscription, workspace and var-file, profile, kube context and namespace, environment, ticket keys) / Constraints (any CLAUDE.md rule that binds the command: operators do not load CLAUDE.md) / Report as. A hook adds the working directory, branch and scratchpad path; everything else comes from you. Write tasks and commit text in English unless the user gave the text; answer the user in the user's language.
 5. Pass `model` for builder, operator, senior-operator and Explore (`{operator_model}`), and `{builder_model}` for `general-purpose`; launch Plan and the coordinator without one. A failed operator task goes to the senior-operator; a failed builder is reported to the user. In doubt, pick the cheaper tier.
